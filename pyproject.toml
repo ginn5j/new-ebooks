@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "new-ebooks"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "keyring>=24",
+]
+
+[project.scripts]
+new-ebooks = "new_ebooks.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["new_ebooks*"]

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Search Results</title></head>
+<body>
+<script>
+window.OverDrive = window.OverDrive || {};
+window.OverDrive.mediaItems = {
+  "12345678": {
+    "id": "12345678",
+    "reserveId": "aaaaaaaa-0000-0000-0000-000000000001",
+    "title": "The Great Algorithm",
+    "creators": [{"name": "Ada Coder", "role": "Author"}],
+    "covers": {
+      "cover150Wide": {"href": "https://img1.od-cdn.com/ImageType-100/1191-1/GreatAlgo.jpg"}
+    }
+  },
+  "87654321": {
+    "id": "87654321",
+    "reserveId": "bbbbbbbb-0000-0000-0000-000000000002",
+    "title": "Recursive Dreams",
+    "creators": [{"name": "Brian Stack", "role": "Author"}],
+    "covers": {
+      "cover150Wide": {"href": "https://img1.od-cdn.com/ImageType-100/1191-1/RecDreams.jpg"}
+    }
+  },
+  "11111111": {
+    "id": "11111111",
+    "reserveId": "cccccccc-0000-0000-0000-000000000003",
+    "title": "Old Book",
+    "creators": [{"name": "Carl Legacy", "role": "Author"}],
+    "covers": {}
+  }
+};
+</script>
+<script>
+window.OverDrive.titleCollection = [
+  {
+    "id": "87654321",
+    "reserveId": "bbbbbbbb-0000-0000-0000-000000000002",
+    "title": "Recursive Dreams",
+    "firstCreatorName": "Brian Stack",
+    "covers": {"cover150Wide": {"href": "https://img1.od-cdn.com/ImageType-100/1191-1/RecDreams.jpg"}},
+    "description": "<strong>A dream within a dream.</strong><br />A recursive tale of wonder."
+  },
+  {
+    "id": "11111111",
+    "reserveId": "cccccccc-0000-0000-0000-000000000003",
+    "title": "Old Book",
+    "firstCreatorName": "Carl Legacy",
+    "covers": {}
+  },
+  {
+    "id": "12345678",
+    "reserveId": "aaaaaaaa-0000-0000-0000-000000000001",
+    "title": "The Great Algorithm",
+    "firstCreatorName": "Ada Coder",
+    "covers": {"cover150Wide": {"href": "https://img1.od-cdn.com/ImageType-100/1191-1/GreatAlgo.jpg"}}
+  }
+];
+</script>
+</body>
+</html>
