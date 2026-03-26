@@ -595,6 +595,25 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update_cache(args: argparse.Namespace) -> int:
+    from new_ebooks.scheduler import _cache_package, PKG_CACHE_DIR, get_schedule_info
+
+    if not get_schedule_info():
+        print("No schedule configured. Run 'new-ebooks schedule' first.", file=sys.stderr)
+        return 1
+
+    try:
+        _cache_package()
+        print(f"Package cache updated: {PKG_CACHE_DIR}")
+    except Exception as e:
+        print(f"Failed to update cache: {e}", file=sys.stderr)
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+    return 0
+
+
 def cmd_unschedule(args: argparse.Namespace) -> int:
     from new_ebooks.scheduler import unload_plist, is_loaded, PLIST_PATH, get_schedule_info
 
@@ -648,9 +667,10 @@ def main() -> None:
     # email
     subparsers.add_parser("email", help="Configure SMTP email settings")
 
-    # schedule / unschedule
+    # schedule / unschedule / update-cache
     subparsers.add_parser("schedule", help="Schedule a weekly automatic check")
     subparsers.add_parser("unschedule", help="Remove the scheduled check")
+    subparsers.add_parser("update-cache", help="Refresh the local package copy used by the scheduled job")
 
     args = parser.parse_args()
 
@@ -670,6 +690,8 @@ def main() -> None:
         sys.exit(cmd_schedule(args))
     elif args.command == "unschedule":
         sys.exit(cmd_unschedule(args))
+    elif args.command == "update-cache":
+        sys.exit(cmd_update_cache(args))
     else:
         parser.print_help()
         sys.exit(0)

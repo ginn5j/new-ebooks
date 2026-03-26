@@ -88,6 +88,14 @@ Removes the scheduled check.
 new-ebooks unschedule
 ```
 
+### `new-ebooks update-cache`
+
+Refreshes the local package copy used by the scheduled job. Because the scheduled job runs outside the iCloud Drive security context, the package source is copied to `~/.config/new_ebooks/pkg/` at schedule-time. If you modify the source code after setting up a schedule, run this command to push the changes into the cache.
+
+```
+new-ebooks update-cache
+```
+
 ### `new-ebooks status`
 
 Prints the current configuration and anchor state for all libraries, including email and schedule settings if configured — no network calls made.
