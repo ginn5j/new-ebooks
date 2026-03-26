@@ -15,16 +15,16 @@ WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday
 def write_plist(check_args: list[str], weekday: int, hour: int, minute: int, log_path: Path) -> None:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # Derive the site-packages directory from where new_ebooks is installed.
-    # Setting PYTHONPATH explicitly means the job finds the right packages
-    # regardless of launchd's minimal environment or which Python it resolves to.
-    import new_ebooks as _pkg
-    site_packages = str(Path(_pkg.__file__).parent.parent)
+    # Capture sys.path at schedule-time so the launchd job gets the exact same
+    # module search path that works interactively. This handles editable installs
+    # (where .pth files link site-packages → source) and avoids relying on
+    # launchd's minimal environment to reconstruct the right path.
+    python_path = ":".join(p for p in sys.path if p)
 
     plist = {
         "Label": PLIST_LABEL,
         "ProgramArguments": [sys.executable, "-m", "new_ebooks", "check"] + check_args,
-        "EnvironmentVariables": {"PYTHONPATH": site_packages},
+        "EnvironmentVariables": {"PYTHONPATH": python_path},
         "StartCalendarInterval": {
             "Weekday": weekday,
             "Hour": hour,
