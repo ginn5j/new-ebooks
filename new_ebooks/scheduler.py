@@ -1,7 +1,6 @@
 from __future__ import annotations
 import os
 import plistlib
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,22 +12,13 @@ PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 
-def find_executable() -> Optional[str]:
-    path = shutil.which("new-ebooks")
-    if path:
-        return path
-    # Fall back to bin directory alongside the running Python interpreter
-    candidate = Path(sys.executable).parent / "new-ebooks"
-    if candidate.exists():
-        return str(candidate)
-    return None
-
-
-def write_plist(executable: str, check_args: list[str], weekday: int, hour: int, minute: int, log_path: Path) -> None:
+def write_plist(check_args: list[str], weekday: int, hour: int, minute: int, log_path: Path) -> None:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Use sys.executable so the scheduled job runs under the exact same Python
+    # interpreter (and site-packages) as the one that installed new-ebooks.
     plist = {
         "Label": PLIST_LABEL,
-        "ProgramArguments": [executable, "check"] + check_args,
+        "ProgramArguments": [sys.executable, "-m", "new_ebooks", "check"] + check_args,
         "StartCalendarInterval": {
             "Weekday": weekday,
             "Hour": hour,
@@ -74,7 +64,13 @@ def get_schedule_info() -> Optional[dict]:
         plist = plistlib.load(f)
     interval = plist.get("StartCalendarInterval", {})
     prog_args = plist.get("ProgramArguments", [])
-    check_args = prog_args[2:] if len(prog_args) > 2 else []
+    # Support both formats:
+    #   new: [python, -m, new_ebooks, check, ...args]
+    #   old: [script, check, ...args]
+    if len(prog_args) >= 4 and prog_args[1:3] == ["-m", "new_ebooks"]:
+        check_args = prog_args[4:]
+    else:
+        check_args = prog_args[2:] if len(prog_args) > 2 else []
     return {
         "weekday": interval.get("Weekday", 0),
         "hour": interval.get("Hour", 0),

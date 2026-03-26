@@ -517,7 +517,7 @@ def cmd_email_config(args: argparse.Namespace) -> int:
 
 def cmd_schedule(args: argparse.Namespace) -> int:
     from new_ebooks.scheduler import (
-        find_executable, write_plist, load_plist, unload_plist,
+        write_plist, load_plist, unload_plist,
         get_schedule_info, is_loaded, WEEKDAY_NAMES, PLIST_PATH,
     )
     from new_ebooks.config import DEFAULT_CONFIG_DIR
@@ -534,11 +534,6 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         resp = input("Replace it? (y/n) [y]: ").strip().lower() or "y"
         if resp != "y":
             return 0
-
-    executable = find_executable()
-    if not executable:
-        print("Could not locate the 'new-ebooks' executable. Is it on your PATH?", file=sys.stderr)
-        return 1
 
     print("=== New eBooks — Schedule Weekly Check ===")
     print("Press Enter to accept the default.\n")
@@ -583,7 +578,7 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     if existing and is_loaded():
         unload_plist()
 
-    write_plist(executable, check_args, weekday, hour, minute, log_path)
+    write_plist(check_args, weekday, hour, minute, log_path)
     try:
         load_plist()
     except Exception as e:
