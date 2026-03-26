@@ -383,6 +383,19 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         print("\nEmail: not configured (run 'new-ebooks email' to set up)")
 
+    from new_ebooks.scheduler import get_schedule_info, WEEKDAY_NAMES
+    info = get_schedule_info()
+    if info:
+        day = WEEKDAY_NAMES[info["weekday"]]
+        time_str = f"{info['hour']:02d}:{info['minute']:02d}"
+        status_str = "active" if info["loaded"] else "not loaded"
+        args_str = " ".join(info["check_args"]) or "(none)"
+        print(f"\nSchedule ({status_str})")
+        print(f"  Every {day} at {time_str}")
+        print(f"  Extra args: {args_str}")
+    else:
+        print("\nSchedule: not configured (run 'new-ebooks schedule' to set up)")
+
     return 0
 
 
@@ -502,6 +515,105 @@ def cmd_email_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schedule(args: argparse.Namespace) -> int:
+    from new_ebooks.scheduler import (
+        find_executable, write_plist, load_plist, unload_plist,
+        get_schedule_info, is_loaded, WEEKDAY_NAMES, PLIST_PATH,
+    )
+    from new_ebooks.config import DEFAULT_CONFIG_DIR
+
+    config_path = Path(args.config)
+    config = load_config(config_path)
+
+    # Warn if already scheduled
+    existing = get_schedule_info()
+    if existing:
+        day = WEEKDAY_NAMES[existing["weekday"]]
+        time_str = f"{existing['hour']:02d}:{existing['minute']:02d}"
+        print(f"A schedule already exists: every {day} at {time_str}.")
+        resp = input("Replace it? (y/n) [y]: ").strip().lower() or "y"
+        if resp != "y":
+            return 0
+
+    executable = find_executable()
+    if not executable:
+        print("Could not locate the 'new-ebooks' executable. Is it on your PATH?", file=sys.stderr)
+        return 1
+
+    print("=== New eBooks — Schedule Weekly Check ===")
+    print("Press Enter to accept the default.\n")
+
+    # Day of week
+    day_input = input("Day of week [Monday]: ").strip() or "Monday"
+    weekday = None
+    for i, name in enumerate(WEEKDAY_NAMES):
+        if name.lower().startswith(day_input.lower()):
+            weekday = i
+            break
+    if weekday is None:
+        try:
+            weekday = int(day_input) % 7
+        except ValueError:
+            print(f"Unrecognised day '{day_input}'. Use a day name or 0–6 (0=Sunday).", file=sys.stderr)
+            return 1
+
+    # Time
+    time_input = input("Time (HH:MM, 24-hour) [09:00]: ").strip() or "09:00"
+    try:
+        hour_str, minute_str = time_input.split(":")
+        hour, minute = int(hour_str), int(minute_str)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except ValueError:
+        print(f"Invalid time '{time_input}'. Use HH:MM in 24-hour format.", file=sys.stderr)
+        return 1
+
+    # Determine check args
+    check_args: list[str] = []
+    if config.email:
+        check_args = ["--email"]
+    else:
+        check_args = ["--no-open"]
+        print("Note: email is not configured — scheduled check will run with --no-open.")
+        print("Run 'new-ebooks email' to configure email delivery.")
+
+    log_path = DEFAULT_CONFIG_DIR / "check.log"
+
+    # Unload existing if loaded, then write and load new plist
+    if existing and is_loaded():
+        unload_plist()
+
+    write_plist(executable, check_args, weekday, hour, minute, log_path)
+    try:
+        load_plist()
+    except Exception as e:
+        print(f"Failed to register schedule with launchd: {e}", file=sys.stderr)
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+    day_name = WEEKDAY_NAMES[weekday]
+    print(f"\nScheduled: every {day_name} at {hour:02d}:{minute:02d}.")
+    print(f"If the computer is asleep at that time, the check will run at next wake.")
+    print(f"Output logged to: {log_path}")
+    return 0
+
+
+def cmd_unschedule(args: argparse.Namespace) -> int:
+    from new_ebooks.scheduler import unload_plist, is_loaded, PLIST_PATH, get_schedule_info
+
+    if not get_schedule_info():
+        print("No schedule configured.")
+        return 0
+
+    if is_loaded():
+        unload_plist()
+    PLIST_PATH.unlink(missing_ok=True)
+    print("Schedule removed.")
+    return 0
+
+
 def main() -> None:
     default_config = str(DEFAULT_CONFIG_PATH)
     default_state = str(DEFAULT_STATE_PATH)
@@ -541,6 +653,10 @@ def main() -> None:
     # email
     subparsers.add_parser("email", help="Configure SMTP email settings")
 
+    # schedule / unschedule
+    subparsers.add_parser("schedule", help="Schedule a weekly automatic check")
+    subparsers.add_parser("unschedule", help="Remove the scheduled check")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -555,6 +671,10 @@ def main() -> None:
         sys.exit(cmd_status(args))
     elif args.command == "email":
         sys.exit(cmd_email_config(args))
+    elif args.command == "schedule":
+        sys.exit(cmd_schedule(args))
+    elif args.command == "unschedule":
+        sys.exit(cmd_unschedule(args))
     else:
         parser.print_help()
         sys.exit(0)

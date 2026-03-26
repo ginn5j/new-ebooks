@@ -66,9 +66,31 @@ You will be prompted for:
 - **To address** — where results are delivered
 - **TLS** — whether to use STARTTLS (default: yes)
 
+### `new-ebooks schedule`
+
+Sets up a weekly automatic check using macOS's built-in scheduler (launchd). If the computer is asleep or offline at the scheduled time, the check runs automatically at the next wake.
+
+```
+new-ebooks schedule
+```
+
+You will be prompted for:
+- **Day of week** — e.g. `Monday` (default)
+- **Time** — 24-hour `HH:MM` format (default `09:00`)
+
+If email is configured, the scheduled check runs with `--email`. Otherwise it runs with `--no-open` and writes results to a temp file. Output from each run is appended to `~/.config/new_ebooks/check.log`.
+
+### `new-ebooks unschedule`
+
+Removes the scheduled check.
+
+```
+new-ebooks unschedule
+```
+
 ### `new-ebooks status`
 
-Prints the current configuration and anchor state for all libraries, including email settings if configured — no network calls made.
+Prints the current configuration and anchor state for all libraries, including email and schedule settings if configured — no network calls made.
 
 ```
 new-ebooks status
