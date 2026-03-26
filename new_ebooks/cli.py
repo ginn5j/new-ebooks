@@ -11,6 +11,7 @@ import requests
 
 from new_ebooks.config import (
     DEFAULT_CONFIG_PATH,
+    EmailConfig,
     LibraryConfig,
     Config,
     load_config,
@@ -31,7 +32,8 @@ from new_ebooks.auth import (
     is_authenticated,
 )
 from new_ebooks.checker import check_for_new_ebooks
-from new_ebooks.renderer import render_html, write_and_open
+from new_ebooks.renderer import render_html, render_email_html, write_and_open
+from new_ebooks.emailer import get_smtp_password, send_email
 
 
 def _make_session(cookies: dict) -> requests.Session:
@@ -242,6 +244,8 @@ def cmd_check(args: argparse.Namespace) -> int:
                 print("No books found.", file=sys.stderr)
             continue
 
+        use_email = hasattr(args, "email") and args.email
+
         if not new_books:
             print(f"No new eBooks since {last_checked}.")
         else:
@@ -257,12 +261,34 @@ def cmd_check(args: argparse.Namespace) -> int:
             # Render HTML
             html = render_html(new_books, last_checked or "", lib_config.name, lib_config.library_base_url)
             tmp = Path(tempfile.mktemp(suffix=".html", prefix="new_ebooks_"))
-            auto_open = not (hasattr(args, "no_open") and args.no_open)
+
+            force_open = hasattr(args, "open") and args.open
+            no_open = hasattr(args, "no_open") and args.no_open
+            auto_open = force_open if use_email else not no_open
+
             write_and_open(html, tmp, auto_open=auto_open)
             if auto_open:
                 print(f"Opened results in browser: {tmp}")
             else:
                 print(f"Results written to: {tmp}")
+
+        if use_email:
+            email_cfg = config.email
+            if not email_cfg:
+                print("Email not configured. Run 'new-ebooks email' to set up SMTP.", file=sys.stderr)
+                exit_code = 1
+                continue
+            password = get_smtp_password(email_cfg.smtp_user) or ""
+            try:
+                email_html = render_email_html(new_books, last_checked or "", lib_config.name, lib_config.library_base_url)
+                send_email(new_books, last_checked or "", lib_config.name, lib_config.library_base_url, email_cfg, password, email_html)
+                print(f"Email sent to {email_cfg.smtp_to}.")
+            except Exception as e:
+                print(f"Failed to send email: {e}", file=sys.stderr)
+                if args.verbose:
+                    import traceback
+                    traceback.print_exc()
+                exit_code = 1
 
     return exit_code
 
@@ -347,6 +373,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         else:
             print("  (no state — run 'new-ebooks init')")
 
+    if config.email:
+        e = config.email
+        print(f"\nEmail")
+        print(f"  SMTP:   {e.smtp_host}:{e.smtp_port} (TLS: {e.use_tls})")
+        print(f"  User:   {e.smtp_user}")
+        print(f"  From:   {e.smtp_from}")
+        print(f"  To:     {e.smtp_to}")
+    else:
+        print("\nEmail: not configured (run 'new-ebooks email' to set up)")
+
     return 0
 
 
@@ -405,6 +441,67 @@ def cmd_edit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_email_config(args: argparse.Namespace) -> int:
+    from new_ebooks.emailer import set_smtp_password, get_smtp_password
+    config_path = Path(args.config)
+    config = load_config(config_path)
+    current = config.email
+
+    print("=== New eBooks — Configure Email ===")
+    print("Press Enter to keep the current value.\n")
+
+    current_host = current.smtp_host if current else ""
+    smtp_host = input(f"SMTP host [{current_host or 'e.g. smtp.gmail.com'}]: ").strip() or current_host
+    if not smtp_host:
+        print("SMTP host cannot be empty.", file=sys.stderr)
+        return 1
+
+    current_port = str(current.smtp_port) if current else "587"
+    port_str = input(f"SMTP port [{current_port}]: ").strip() or current_port
+    try:
+        smtp_port = int(port_str)
+    except ValueError:
+        smtp_port = 587
+
+    current_user = current.smtp_user if current else ""
+    smtp_user = input(f"SMTP username [{current_user}]: ").strip() or current_user
+
+    change_password = True
+    if current and get_smtp_password(current.smtp_user):
+        resp = input("SMTP password is already set. Change it? (y/n) [n]: ").strip().lower()
+        change_password = resp == "y"
+    if change_password:
+        import getpass
+        password = getpass.getpass("SMTP password: ")
+        if password:
+            set_smtp_password(smtp_user, password)
+
+    current_from = current.smtp_from if current else smtp_user
+    smtp_from = input(f"From address [{current_from}]: ").strip() or current_from
+
+    current_to = current.smtp_to if current else ""
+    smtp_to = input(f"To address [{current_to}]: ").strip() or current_to
+    if not smtp_to:
+        print("To address cannot be empty.", file=sys.stderr)
+        return 1
+
+    current_tls = "y" if (current.use_tls if current else True) else "n"
+    tls_str = input(f"Use TLS/STARTTLS? (y/n) [{current_tls}]: ").strip().lower() or current_tls
+    use_tls = tls_str != "n"
+
+    config.email = EmailConfig(
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_user=smtp_user,
+        smtp_from=smtp_from,
+        smtp_to=smtp_to,
+        use_tls=use_tls,
+    )
+    save_config(config, config_path)
+    print(f"\nEmail configured. Run 'new-ebooks check --email' to send results.")
+    return 0
+
+
 def main() -> None:
     default_config = str(DEFAULT_CONFIG_PATH)
     default_state = str(DEFAULT_STATE_PATH)
@@ -427,6 +524,8 @@ def main() -> None:
     check_p.add_argument("--library", metavar="NAME", help="Check a specific library by name")
     check_p.add_argument("--all", action="store_true", help="Check all libraries (default)")
     check_p.add_argument("--no-open", action="store_true", help="Don't open results in browser")
+    check_p.add_argument("--email", action="store_true", help="Send results by email (skips browser by default)")
+    check_p.add_argument("--open", action="store_true", help="Open results in browser even when --email is used")
 
     # edit
     edit_p = subparsers.add_parser("edit", help="Edit a library's configuration")
@@ -438,6 +537,9 @@ def main() -> None:
 
     # status
     subparsers.add_parser("status", help="Show config and state")
+
+    # email
+    subparsers.add_parser("email", help="Configure SMTP email settings")
 
     args = parser.parse_args()
 
@@ -451,6 +553,8 @@ def main() -> None:
         sys.exit(cmd_reset(args))
     elif args.command == "status":
         sys.exit(cmd_status(args))
+    elif args.command == "email":
+        sys.exit(cmd_email_config(args))
     else:
         parser.print_help()
         sys.exit(0)

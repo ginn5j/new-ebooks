@@ -42,14 +42,33 @@ Checks all configured libraries for new eBooks and opens an HTML results page in
 ```
 new-ebooks check
 new-ebooks check --library "Hamilton East Public Library"
-new-ebooks check --no-open   # write HTML but don't open browser
+new-ebooks check --no-open          # write HTML but don't open browser
+new-ebooks check --email            # send results by email, don't open browser
+new-ebooks check --email --open     # send results by email and open browser
 ```
 
-If there are no new eBooks since the last check, prints a message to the terminal instead.
+If there are no new eBooks since the last check, prints a message to the terminal. With `--email`, a "no new eBooks" message is still sent.
+
+### `new-ebooks email`
+
+Interactively configure SMTP settings for email delivery. The SMTP password is stored in the macOS Keychain under the service name `new-ebooks-smtp`; all other settings are saved to `config.json`.
+
+```
+new-ebooks email
+```
+
+You will be prompted for:
+- **SMTP host** — e.g. `smtp.gmail.com`
+- **SMTP port** — default `587`
+- **SMTP username**
+- **SMTP password** — stored in the macOS Keychain, not written to disk
+- **From address** — defaults to the SMTP username
+- **To address** — where results are delivered
+- **TLS** — whether to use STARTTLS (default: yes)
 
 ### `new-ebooks status`
 
-Prints the current configuration and anchor state for all libraries — no network calls made.
+Prints the current configuration and anchor state for all libraries, including email settings if configured — no network calls made.
 
 ```
 new-ebooks status
@@ -92,13 +111,15 @@ new-ebooks reset --library "Hamilton East Public Library"
    - Books on pages before the anchor are all new.
    - On the anchor's page, only books appearing before it are new.
 5. Saves the first new book as the next anchor.
-6. Renders an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and opens it in the browser.
+6. Renders an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and opens it in the browser (or sends it by email if `--email` is used).
 
 A safety valve stops pagination at 50 pages. If this triggers, the anchor was likely removed from the collection — run `new-ebooks reset`.
 
 ## Credentials
 
 Card number and PIN are stored in the macOS Keychain under the service name `new-ebooks`. They are never written to the config or state files. For consortial libraries, credentials are keyed by `{library_base_url}::{member_library}`.
+
+The SMTP password is stored separately under the service name `new-ebooks-smtp`, keyed by the SMTP username.
 
 ## Configuration files
 

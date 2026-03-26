@@ -133,6 +133,85 @@ def render_html(books: list[EBook], last_checked: str, library_name: str = "", l
 </html>"""
 
 
+def render_email_html(books: list[EBook], last_checked: str, library_name: str = "", library_base_url: str = "") -> str:
+    """Render an email-safe HTML version with all styles inlined (no <style> block)."""
+    count = len(books)
+    if count == 0:
+        heading = "No new eBooks"
+    elif count == 1:
+        heading = "1 new eBook"
+    else:
+        heading = f"{count} new eBooks"
+
+    if last_checked:
+        heading += f" since {last_checked}"
+    if library_name:
+        heading += f" — {library_name}"
+
+    cards = []
+    for book in books:
+        src = book.cover_url if book.cover_url else ""
+        title_escaped = book.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        author_escaped = book.first_creator_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        cover_html = (
+            f'<img src="{src}" alt="Cover" width="150" height="200" '
+            f'style="width:150px;height:200px;object-fit:contain;background:#eee;display:block;">'
+            if src else
+            '<div style="width:150px;height:200px;background:#ddd;display:flex;align-items:center;'
+            'justify-content:center;color:#999;font-size:13px;">No Cover</div>'
+        )
+        if library_base_url:
+            detail_url = f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
+            if book.is_available:
+                link = (
+                    f'<a href="{detail_url}" style="display:block;margin:8px 10px;padding:6px 0;'
+                    f'border-radius:4px;text-align:center;text-decoration:none;font-size:12px;'
+                    f'font-weight:600;background:#1a7f4b;color:#fff;">Borrow</a>'
+                )
+            else:
+                link = (
+                    f'<a href="{detail_url}" style="display:block;margin:8px 10px;padding:6px 0;'
+                    f'border-radius:4px;text-align:center;text-decoration:none;font-size:12px;'
+                    f'font-weight:600;background:#e8f0fe;color:#1a56c4;">Place a Hold</a>'
+                )
+        else:
+            link = ""
+        description_text = _sanitize_description(book.description) if book.description else ""
+        description_html = (
+            f'<div style="font-size:12px;color:#444;line-height:1.4;margin-top:6px;">{description_text}</div>'
+            if description_text else ""
+        )
+        card = (
+            f'<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.12);'
+            f'width:180px;overflow:hidden;display:inline-block;vertical-align:top;margin:0 8px 16px 0;">'
+            f"{cover_html}"
+            f'<div style="padding:8px 10px;">'
+            f'<strong style="font-size:13px;line-height:1.3;display:block;">{title_escaped}</strong>'
+            f'<span style="font-size:12px;color:#666;display:block;">{author_escaped}</span>'
+            f"{description_html}"
+            f"</div>"
+            f"{link}"
+            f"</div>"
+        )
+        cards.append(card)
+
+    cards_html = "\n".join(cards)
+    heading_escaped = heading.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{heading_escaped}</title>
+</head>
+<body style="font-family:system-ui,sans-serif;background:#f5f5f5;color:#222;padding:24px;margin:0;">
+<h1 style="font-size:22px;margin:0 0 20px;color:#333;">{heading_escaped}</h1>
+<div style="max-width:800px;">
+{cards_html}
+</div>
+</body>
+</html>"""
+
+
 def write_and_open(html: str, output_path: Path, auto_open: bool = True) -> None:
     output_path.write_text(html, encoding="utf-8")
     if auto_open:

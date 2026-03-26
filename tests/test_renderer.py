@@ -1,4 +1,4 @@
-from new_ebooks.renderer import render_html
+from new_ebooks.renderer import render_html, render_email_html
 from new_ebooks.scraper import EBook
 
 
@@ -80,6 +80,31 @@ def test_render_html_no_description_element_when_empty():
     books = [make_book("1", "A Book", "Author")]
     html = render_html(books, "2026-03-01")
     assert 'class="description"' not in html
+
+
+def test_render_email_html_no_style_block():
+    books = [make_book("1", "Python Mastery", "Guido V.", "https://example.com/cover.jpg")]
+    html = render_email_html(books, "2026-03-01", "Test Library")
+    assert "<style" not in html
+    assert "style=" in html  # inline styles present
+    assert "Python Mastery" in html
+    assert "Guido V." in html
+    assert "Test Library" in html
+    assert "2026-03-01" in html
+
+
+def test_render_email_html_no_js():
+    books = [make_book("1", "A Book", "Author")]
+    html = render_email_html(books, "2026-03-01")
+    assert "onerror" not in html
+    assert "<script" not in html
+
+
+def test_render_email_html_xss_prevention():
+    books = [make_book("1", "<script>alert('xss')</script>", "Author & Co")]
+    html = render_email_html(books, "2026-03-01")
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;" in html
 
 
 def test_render_html_description_all_tags_stripped():
