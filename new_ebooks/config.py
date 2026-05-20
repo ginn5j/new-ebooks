@@ -15,6 +15,7 @@ class LibraryConfig:
     format: str = "ebook-kindle"
     request_delay_seconds: float = 1.0
     member_library: Optional[str] = None
+    provider: str = "overdrive"
 
 
 @dataclass

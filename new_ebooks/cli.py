@@ -119,9 +119,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("Name cannot be empty.", file=sys.stderr)
         return 1
 
-    library_url = input("Overdrive base URL (e.g. https://spl.overdrive.com): ").strip().rstrip("/")
+    library_url = input("Base URL (e.g. https://spl.overdrive.com): ").strip().rstrip("/")
     if not library_url:
         print("URL cannot be empty.", file=sys.stderr)
+        return 1
+
+    provider_input = input("Provider (overdrive/cloudlibrary) [overdrive]: ").strip().lower() or "overdrive"
+    if provider_input not in ("overdrive", "cloudlibrary"):
+        print("Unknown provider. Use 'overdrive' or 'cloudlibrary'.", file=sys.stderr)
         return 1
 
     fmt = input("Format (e.g. ebook-epub-adobe, ebook-kindle) [ebook-epub-adobe]: ").strip() or "ebook-epub-adobe"
@@ -154,6 +159,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         format=fmt,
         request_delay_seconds=delay,
         member_library=member_library,
+        provider=provider_input,
     )
 
     # Authenticate — results may be filtered to the member library's available titles
@@ -370,10 +376,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     for lib in config.libraries:
         url = lib.library_base_url
         print(f"\n{lib.name}")
-        print(f"  URL:    {url}")
-        print(f"  Format: {lib.format}")
+        print(f"  URL:      {url}")
+        print(f"  Provider: {lib.provider}")
+        print(f"  Format:   {lib.format}")
         if lib.member_library:
-            print(f"  Member: {lib.member_library}")
+            print(f"  Member:   {lib.member_library}")
 
         if state:
             lib_state = state.libraries.get(url)
@@ -451,6 +458,12 @@ def cmd_edit(args: argparse.Namespace) -> int:
     delay_str = input(f"Request delay seconds [{lib.request_delay_seconds}]: ").strip()
     delay = float(delay_str) if delay_str else lib.request_delay_seconds
 
+    current_provider = lib.provider
+    provider_input = input(f"Provider (overdrive/cloudlibrary) [{current_provider}]: ").strip().lower() or current_provider
+    if provider_input not in ("overdrive", "cloudlibrary"):
+        print("Unknown provider. Use 'overdrive' or 'cloudlibrary'.", file=sys.stderr)
+        return 1
+
     current_member = lib.member_library or "(none)"
     default_consortium = "y" if lib.member_library else "n"
     is_consortium = input(f"Is this a consortial Overdrive site? (y/n) [{default_consortium}]: ").strip().lower() or default_consortium
@@ -463,6 +476,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
     lib.library_base_url = library_url
     lib.format = fmt
     lib.request_delay_seconds = delay
+    lib.provider = provider_input
     lib.member_library = member_library
 
     save_config(config, config_path)
