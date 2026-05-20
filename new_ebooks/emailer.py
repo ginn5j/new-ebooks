@@ -53,12 +53,12 @@ def send_email(
 
     if use_ssl:
         ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(email_config.smtp_host, port, context=ctx) as server:
+        with smtplib.SMTP_SSL(email_config.smtp_host, port, context=ctx, timeout=30) as server:
             if email_config.smtp_user and password:
                 server.login(email_config.smtp_user, password)
             server.sendmail(msg["From"], [email_config.smtp_to], msg.as_string())
     else:
-        with smtplib.SMTP(email_config.smtp_host, port) as server:
+        with smtplib.SMTP(email_config.smtp_host, port, timeout=30) as server:
             if email_config.use_tls:
                 ctx = ssl.create_default_context()
                 server.starttls(context=ctx)

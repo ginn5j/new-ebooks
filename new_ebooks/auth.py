@@ -17,6 +17,16 @@ def credential_key(library_url: str, member_library: Optional[str] = None) -> st
     return library_url
 
 
+def get_stored_credentials(library_url: str, member_library: Optional[str] = None) -> Optional[tuple[str, str]]:
+    key = credential_key(library_url, member_library)
+    secret = keyring.get_password(KEYCHAIN_SERVICE, key)
+    if secret:
+        parts = secret.split(":", 1)
+        if len(parts) == 2:
+            return parts[0], parts[1]
+    return None
+
+
 def get_credentials(library_url: str, member_library: Optional[str] = None) -> tuple[str, str]:
     key = credential_key(library_url, member_library)
     secret = keyring.get_password(KEYCHAIN_SERVICE, key)

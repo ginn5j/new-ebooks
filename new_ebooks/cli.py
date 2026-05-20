@@ -28,6 +28,7 @@ from new_ebooks.state import (
 from new_ebooks.scraper import EBook, build_search_url, parse_page
 from new_ebooks.auth import (
     get_credentials,
+    get_stored_credentials,
     login,
     is_authenticated,
 )
@@ -67,7 +68,19 @@ def _fetch_with_auth(
     def fetcher(url: str) -> str:
         if delay:
             time.sleep(delay)
-        resp = session.get(url, timeout=30)
+        try:
+            resp = session.get(url, timeout=30)
+        except requests.exceptions.Timeout:
+            print("Request timed out; re-authenticating and retrying...", file=sys.stderr)
+            try:
+                creds = get_stored_credentials(lib_config.library_base_url, lib_config.member_library)
+                if creds:
+                    card_number, pin = creds
+                    new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
+                    lib_state.session_cookies = new_cookies
+            except Exception as auth_e:
+                print(f"Re-authentication failed: {auth_e}", file=sys.stderr)
+            resp = session.get(url, timeout=60)
         resp.raise_for_status()
         html = resp.text
         if not is_authenticated(html):
@@ -248,6 +261,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         if not new_books:
             print(f"No new eBooks since {last_checked}.")
+            lib_state.session_cookies = dict(session.cookies)
+            state.libraries[url] = lib_state
+            save_state(state, state_path, config.max_state_backups)
         else:
             print(f"Found {len(new_books)} new eBook(s).")
             # Update state

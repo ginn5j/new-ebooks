@@ -55,8 +55,6 @@ def check_for_new_ebooks(
             new_books.extend(books[:idx])
             break
 
-        if page_num < MAX_PAGES:
-            time.sleep(config.request_delay_seconds)
     else:
         # Safety valve: anchor not found after MAX_PAGES
         return new_books, new_books[0] if new_books else None
