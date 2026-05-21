@@ -127,3 +127,113 @@ def test_safety_valve(monkeypatch):
     new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     # Should have collected 3 pages * 2 books = 6 books
     assert len(new_books) == 6
+
+
+# --- CloudLibrary-style provider override (url_builder + page_parser) ---
+
+import json as _json
+
+CL_CONFIG = LibraryConfig(
+    name="CloudLibrary Test",
+    library_base_url="https://ebook.yourcloudlibrary.com/library/scpl",
+    format="digital",
+    request_delay_seconds=0.0,
+    provider="cloudlibrary",
+)
+
+
+def _make_cl_json(books: list[tuple[str, str, str]]) -> str:
+    """Build a minimal CloudLibrary JSON response from [(id, title, author), ...]."""
+    items = [
+        {"id": id_, "title": title, "authors": [author],
+         "imageLinkThumbnail": "", "currentlyAvailable": None, "summary": ""}
+        for id_, title, author in books
+    ]
+    return _json.dumps({"results": {"search": {"totalItems": len(items), "items": items}}})
+
+
+def _cl_url_builder(base_url: str, format: str, page: int = 1) -> str:
+    return f"{base_url}/search?segment={page}"
+
+
+def _cl_page_parser(json_text: str) -> list[EBook]:
+    from new_ebooks.cloudlibrary import parse_page
+    return parse_page(json_text)
+
+
+def test_custom_url_builder_is_called():
+    """url_builder receives the library base URL, format, and page number."""
+    calls = []
+
+    def url_builder(base_url: str, format: str, page: int = 1) -> str:
+        calls.append((base_url, format, page))
+        return _make_cl_json([("a1", "Book A", "Author A")])  # not a real URL, fetcher ignores it
+
+    def fetcher(url: str) -> str:
+        return _make_cl_json([("a1", "Book A", "Author A")])
+
+    lib_state = LibraryState(most_recent_ebook=EBookState("a1", "", "Book A", "Author A"))
+    check_for_new_ebooks(CL_CONFIG, lib_state, fetcher, url_builder=url_builder, page_parser=_cl_page_parser)
+    assert calls[0] == (CL_CONFIG.library_base_url, CL_CONFIG.format, 1)
+
+
+def test_custom_page_parser_is_called():
+    """page_parser receives the raw response text and its results are used."""
+    parsed = []
+
+    def page_parser(text: str) -> list[EBook]:
+        books = _cl_page_parser(text)
+        parsed.extend(books)
+        return books
+
+    page_json = _make_cl_json([("newer", "Newer Book", "Auth"), ("anchor", "Anchor Book", "Auth")])
+
+    def fetcher(url: str) -> str:
+        return page_json
+
+    lib_state = LibraryState(most_recent_ebook=EBookState("anchor", "", "Anchor Book", "Auth"))
+    new_books, anchor = check_for_new_ebooks(
+        CL_CONFIG, lib_state, fetcher,
+        url_builder=_cl_url_builder, page_parser=page_parser,
+    )
+    assert len(new_books) == 1
+    assert new_books[0].overdrive_id == "newer"
+    assert len(parsed) >= 1
+
+
+def test_cloudlibrary_first_run():
+    """First run with CloudLibrary provider sets anchor, returns no new books."""
+    page_json = _make_cl_json([("id1", "First Book", "Author One"), ("id2", "Second Book", "Author Two")])
+
+    def fetcher(url: str) -> str:
+        return page_json
+
+    new_books, anchor = check_for_new_ebooks(
+        CL_CONFIG, None, fetcher,
+        url_builder=_cl_url_builder, page_parser=_cl_page_parser,
+    )
+    assert new_books == []
+    assert anchor is not None
+    assert anchor.overdrive_id == "id1"
+
+
+def test_cloudlibrary_new_books_found():
+    """New books before the anchor are returned."""
+    page_json = _make_cl_json([
+        ("new1", "Brand New", "Auth"),
+        ("new2", "Also New", "Auth"),
+        ("anchor", "Old Anchor", "Auth"),
+    ])
+
+    def fetcher(url: str) -> str:
+        return page_json
+
+    lib_state = LibraryState(most_recent_ebook=EBookState("anchor", "", "Old Anchor", "Auth"))
+    new_books, anchor = check_for_new_ebooks(
+        CL_CONFIG, lib_state, fetcher,
+        url_builder=_cl_url_builder, page_parser=_cl_page_parser,
+    )
+    assert len(new_books) == 2
+    assert new_books[0].overdrive_id == "new1"
+    assert new_books[1].overdrive_id == "new2"
+    assert anchor.overdrive_id == "new1"

@@ -93,8 +93,8 @@ def render_html(books: list[EBook], last_checked: str, library_name: str = "", l
         src = book.cover_url if book.cover_url else PLACEHOLDER_SVG
         title_escaped = book.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
         author_escaped = book.first_creator_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        if library_base_url:
-            detail_url = f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
+        if library_base_url or book.detail_url:
+            detail_url = book.detail_url or f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
             if book.is_available:
                 link = f'<a class="book-link borrow" href="{detail_url}" target="_blank">Borrow</a>'
             else:
@@ -160,8 +160,8 @@ def render_email_html(books: list[EBook], last_checked: str, library_name: str =
             '<div style="width:150px;height:200px;background:#ddd;display:flex;align-items:center;'
             'justify-content:center;color:#999;font-size:13px;">No Cover</div>'
         )
-        if library_base_url:
-            detail_url = f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
+        if library_base_url or book.detail_url:
+            detail_url = book.detail_url or f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
             if book.is_available:
                 link = (
                     f'<a href="{detail_url}" style="display:block;margin:8px 10px;padding:6px 0;'

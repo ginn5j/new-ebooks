@@ -1,6 +1,6 @@
 # New eBooks
 
-A Python CLI tool that finds eBooks added to an Overdrive-hosted library collection since the last time you checked. Supports single libraries and consortial Overdrive sites.
+A Python CLI tool that finds eBooks added to a library's digital collection since the last time you checked. Supports both **Overdrive** and **CloudLibrary** (Bibliotheca) hosted collections, including consortial Overdrive sites.
 
 ## Requirements
 
@@ -25,11 +25,18 @@ new-ebooks init
 
 You will be prompted for:
 - **Library name** — a display name of your choosing
-- **Overdrive base URL** — e.g. `https://hepl.overdrive.com`
-- **Format** — e.g. `ebook-epub-adobe` or `ebook-kindle`
+- **Base URL** — e.g. `https://hepl.overdrive.com` or `https://ebook.yourcloudlibrary.com/library/scpl`
+- **Provider** — `overdrive` (default) or `cloudlibrary`
+- **Format**
+  - Overdrive: e.g. `ebook-epub-adobe` or `ebook-kindle`
+  - CloudLibrary: `digital` (default) or `audio`
 - **Request delay** — seconds to wait between page fetches (default: 1.0)
+
+For **Overdrive** libraries only:
 - **Consortial site** — if `y`, you will also be prompted for your member library name as it appears on the Overdrive sign-in page
 - **Library card number and PIN** — stored securely in the macOS Keychain; not written to disk
+
+CloudLibrary collections are public catalogs and do not require a card number or PIN to browse.
 
 On first run, the most recently added eBook is recorded as the anchor. Run `new-ebooks check` afterwards to start seeing new additions.
 
@@ -37,7 +44,7 @@ On first run, the most recently added eBook is recorded as the anchor. Run `new-
 
 ### `new-ebooks check`
 
-Checks all configured libraries for new eBooks and opens an HTML results page in your browser. Each book card shows the cover, title, author, a short description, and a **Borrow** or **Place a Hold** button linking directly to the Overdrive title page.
+Checks all configured libraries for new eBooks and opens an HTML results page in your browser. Each book card shows the cover, title, author, a short description, and a **Borrow** or **Place a Hold** button linking directly to the title page.
 
 ```
 new-ebooks check
@@ -106,14 +113,14 @@ new-ebooks status
 
 ### `new-ebooks edit`
 
-Interactively edit a library's configuration (name, URL, format, delay, member library). Shows current values as defaults; press Enter to keep them.
+Interactively edit a library's configuration (name, URL, format, delay, provider, member library). Shows current values as defaults; press Enter to keep them.
 
 ```
 new-ebooks edit
 new-ebooks edit --library "Hamilton East Public Library"
 ```
 
-After editing, run `new-ebooks reset` to re-authenticate and re-establish the anchor with the updated settings.
+After editing, run `new-ebooks reset` to re-establish the anchor with the updated settings.
 
 ### `new-ebooks reset`
 
@@ -134,28 +141,39 @@ new-ebooks reset --library "Hamilton East Public Library"
 
 ## How it works
 
-1. Loads the stored anchor (most recently added eBook from the previous run).
-2. Fetches the library's Overdrive search page sorted by **Newly Added**, filtered to the configured format.
-3. Book order and data are read from `window.OverDrive.titleCollection` embedded in the page.
-4. Paginates through results until the anchor is found:
+The core algorithm is the same for both providers:
+
+1. Load the stored anchor (most recently added eBook from the previous run).
+2. Fetch the library's search results sorted by **date added**, newest first.
+3. Paginate through results until the anchor is found:
    - Books on pages before the anchor are all new.
    - On the anchor's page, only books appearing before it are new.
-5. Saves the first new book as the next anchor.
-6. Renders an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and opens it in the browser (or sends it by email if `--email` is used).
+4. Save the first new book as the next anchor.
+5. Render an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and open it in the browser (or send by email if `--email` is used).
 
 A safety valve stops pagination at 50 pages. If this triggers, the anchor was likely removed from the collection — run `new-ebooks reset`.
 
+### Overdrive
+
+Book data is read from `window.OverDrive.titleCollection` embedded in the search page HTML. Authentication uses a library card number and PIN stored in the macOS Keychain.
+
+### CloudLibrary
+
+Book data is fetched as JSON via the Remix `_data` route endpoint (`?_data=routes%2Flibrary.%24name.search`), sorted by `-dateadded` and filtered to English-language titles. Session initialisation requires only a GET to the library's base URL, which sets a `__config_PROD` cookie — no patron credentials are needed to browse the catalog.
+
 ## Credentials
 
-Card number and PIN are stored in the macOS Keychain under the service name `new-ebooks`. They are never written to the config or state files. For consortial libraries, credentials are keyed by `{library_base_url}::{member_library}`.
+Overdrive card number and PIN are stored in the macOS Keychain under the service name `new-ebooks`. They are never written to the config or state files. For consortial libraries, credentials are keyed by `{library_base_url}::{member_library}`.
 
 The SMTP password is stored separately under the service name `new-ebooks-smtp`, keyed by the SMTP username.
+
+CloudLibrary libraries do not store any credentials.
 
 ## Configuration files
 
 | File | Purpose |
 |------|---------|
-| `~/.config/new_ebooks/config.json` | Library names, URLs, formats, member libraries, backup settings |
+| `~/.config/new_ebooks/config.json` | Library names, URLs, formats, providers, member libraries, backup settings |
 | `~/.config/new_ebooks/state.json` | Anchor books, last-checked timestamps, cached session cookies |
 | `~/.config/new_ebooks/state.json.{timestamp}` | State backups (see below) |
 

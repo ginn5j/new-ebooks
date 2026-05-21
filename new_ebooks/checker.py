@@ -20,12 +20,19 @@ def check_for_new_ebooks(
     config: LibraryConfig,
     lib_state: Optional[LibraryState],
     fetcher: Callable[[str], str],
+    url_builder: Optional[Callable] = None,
+    page_parser: Optional[Callable] = None,
 ) -> tuple[list[EBook], Optional[EBook]]:
     """
     Returns (new_books, new_anchor).
     new_anchor is the book to save as most_recent_ebook for next run.
     If this is the first run (lib_state is None or has no anchor), returns ([], first_book).
     """
+    if url_builder is None:
+        url_builder = build_search_url
+    if page_parser is None:
+        page_parser = parse_page
+
     anchor_id = None
     if lib_state and lib_state.most_recent_ebook:
         anchor_id = lib_state.most_recent_ebook.overdrive_id
@@ -34,9 +41,9 @@ def check_for_new_ebooks(
     new_anchor: Optional[EBook] = None
 
     for page_num in range(1, MAX_PAGES + 1):
-        url = build_search_url(config.library_base_url, config.format, page_num)
+        url = url_builder(config.library_base_url, config.format, page_num)
         html = fetcher(url)
-        books = parse_page(html)
+        books = page_parser(html)
 
         if not books:
             break

@@ -4,6 +4,7 @@ import sys
 import time
 import tempfile
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +33,7 @@ from new_ebooks.auth import (
     login,
     is_authenticated,
 )
+import new_ebooks.cloudlibrary as cl
 from new_ebooks.checker import check_for_new_ebooks
 from new_ebooks.renderer import render_html, render_email_html, write_and_open
 from new_ebooks.emailer import get_smtp_password, send_email
@@ -47,7 +49,7 @@ def _make_session(cookies: dict) -> requests.Session:
         ),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
@@ -65,36 +67,50 @@ def _fetch_with_auth(
     lib_state: LibraryState,
     delay: float = 0.0,
 ) -> callable:
+    is_cloudlibrary = lib_config.provider == "cloudlibrary"
+
+    extra_headers = {"Accept": "application/json"} if is_cloudlibrary else {}
+
     def fetcher(url: str) -> str:
         if delay:
             time.sleep(delay)
         try:
-            resp = session.get(url, timeout=30)
+            resp = session.get(url, timeout=30, headers=extra_headers)
         except requests.exceptions.Timeout:
             print("Request timed out; re-authenticating and retrying...", file=sys.stderr)
             try:
-                creds = get_stored_credentials(lib_config.library_base_url, lib_config.member_library)
-                if creds:
-                    card_number, pin = creds
-                    new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
+                if is_cloudlibrary:
+                    new_cookies = cl.init_session(session, lib_config.library_base_url)
+                else:
+                    creds = get_stored_credentials(lib_config.library_base_url, lib_config.member_library)
+                    if creds:
+                        card_number, pin = creds
+                        new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
+                    else:
+                        new_cookies = None
+                if new_cookies is not None:
                     lib_state.session_cookies = new_cookies
             except Exception as auth_e:
                 print(f"Re-authentication failed: {auth_e}", file=sys.stderr)
-            resp = session.get(url, timeout=60)
+            resp = session.get(url, timeout=60, headers=extra_headers)
         resp.raise_for_status()
-        html = resp.text
-        if not is_authenticated(html):
+        text = resp.text
+        auth_check = cl.is_authenticated if is_cloudlibrary else is_authenticated
+        if not auth_check(text):
             print("Session expired. Re-authenticating...")
             try:
-                card_number, pin = get_credentials(lib_config.library_base_url, lib_config.member_library)
-                new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
+                if is_cloudlibrary:
+                    new_cookies = cl.init_session(session, lib_config.library_base_url)
+                else:
+                    card_number, pin = get_credentials(lib_config.library_base_url, lib_config.member_library)
+                    new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
                 lib_state.session_cookies = new_cookies
-                resp = session.get(url, timeout=30)
+                resp = session.get(url, timeout=30, headers=extra_headers)
                 resp.raise_for_status()
-                html = resp.text
+                text = resp.text
             except Exception as e:
                 print(f"Re-authentication failed: {e}", file=sys.stderr)
-        return html
+        return text
     return fetcher
 
 
@@ -129,7 +145,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("Unknown provider. Use 'overdrive' or 'cloudlibrary'.", file=sys.stderr)
         return 1
 
-    fmt = input("Format (e.g. ebook-epub-adobe, ebook-kindle) [ebook-epub-adobe]: ").strip() or "ebook-epub-adobe"
+    if provider_input == "cloudlibrary":
+        fmt = input("Format (digital/audio) [digital]: ").strip() or "digital"
+    else:
+        fmt = input("Format (e.g. ebook-epub-adobe, ebook-kindle) [ebook-epub-adobe]: ").strip() or "ebook-epub-adobe"
+
     delay_str = input("Request delay seconds [1.0]: ").strip() or "1.0"
     try:
         delay = float(delay_str)
@@ -142,14 +162,14 @@ def cmd_init(args: argparse.Namespace) -> int:
             print(f"Library '{library_url}' is already configured.", file=sys.stderr)
             return 1
 
-    # Consortium member library
     member_library = None
-    is_consortium = input("Is this a consortial Overdrive site? (y/n) [n]: ").strip().lower()
-    if is_consortium == "y":
-        member_library = input("Member library name (as it appears on the sign-in page): ").strip()
-        if not member_library:
-            print("Member library name cannot be empty.", file=sys.stderr)
-            return 1
+    if provider_input == "overdrive":
+        is_consortium = input("Is this a consortial Overdrive site? (y/n) [n]: ").strip().lower()
+        if is_consortium == "y":
+            member_library = input("Member library name (as it appears on the sign-in page): ").strip()
+            if not member_library:
+                print("Member library name cannot be empty.", file=sys.stderr)
+                return 1
 
     session = _make_session({})
 
@@ -162,12 +182,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         provider=provider_input,
     )
 
-    # Authenticate — results may be filtered to the member library's available titles
-    card_number, pin = get_credentials(library_url, member_library)
     print("Authenticating...")
     cookies: dict = {}
     try:
-        cookies = login(session, library_url, member_library, card_number, pin)
+        if provider_input == "cloudlibrary":
+            cookies = cl.init_session(session, library_url)
+        else:
+            card_number, pin = get_credentials(library_url, member_library)
+            cookies = login(session, library_url, member_library, card_number, pin)
     except Exception as e:
         print(f"Authentication failed: {e}", file=sys.stderr)
         if args.verbose:
@@ -178,8 +200,15 @@ def cmd_init(args: argparse.Namespace) -> int:
     lib_state = LibraryState(session_cookies=cookies)
     fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=0.0)
 
+    if provider_input == "cloudlibrary":
+        _url_builder = cl.build_search_url
+        _page_parser = partial(cl.parse_page, library_base_url=library_url)
+    else:
+        _url_builder = build_search_url
+        _page_parser = parse_page
+
     # Fetch page 1 to establish anchor
-    search_url = build_search_url(library_url, fmt, 1)
+    search_url = _url_builder(library_url, fmt, 1)
     print("Fetching first page to establish anchor...")
     try:
         html = fetcher(search_url)
@@ -187,7 +216,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"Failed to fetch library page: {e}", file=sys.stderr)
         return 1
 
-    books = parse_page(html)
+    books = _page_parser(html)
 
     if not books:
         print("No books found on first page. Check the URL and format.", file=sys.stderr)
@@ -233,11 +262,24 @@ def cmd_check(args: argparse.Namespace) -> int:
         lib_state = state.libraries.get(url, LibraryState())
 
         session = _make_session(lib_state.session_cookies)
+
+        if lib_config.provider == "cloudlibrary":
+            cl.init_session(session, lib_config.library_base_url)
+            _url_builder = cl.build_search_url
+            _page_parser = partial(cl.parse_page, library_base_url=lib_config.library_base_url)
+        else:
+            _url_builder = None
+            _page_parser = None
+
         fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=lib_config.request_delay_seconds)
 
         print(f"Checking {lib_config.name}...")
         try:
-            new_books, new_anchor = check_for_new_ebooks(lib_config, lib_state, fetcher)
+            new_books, new_anchor = check_for_new_ebooks(
+                lib_config, lib_state, fetcher,
+                url_builder=_url_builder,
+                page_parser=_page_parser,
+            )
         except Exception as e:
             print(f"Error checking {lib_config.name}: {e}", file=sys.stderr)
             if args.verbose:
@@ -337,13 +379,22 @@ def cmd_reset(args: argparse.Namespace) -> int:
         url = lib_config.library_base_url
         lib_state = state.libraries.get(url, LibraryState())
         session = _make_session(lib_state.session_cookies)
+
+        if lib_config.provider == "cloudlibrary":
+            cl.init_session(session, url)
+            _url_builder = cl.build_search_url
+            _page_parser = partial(cl.parse_page, library_base_url=url)
+        else:
+            _url_builder = build_search_url
+            _page_parser = parse_page
+
         fetcher = _fetch_with_auth(session, lib_config, lib_state)
 
         print(f"Resetting {lib_config.name}...")
         try:
-            url_fetch = build_search_url(url, lib_config.format, 1)
+            url_fetch = _url_builder(url, lib_config.format, 1)
             html = fetcher(url_fetch)
-            books = parse_page(html)
+            books = _page_parser(html)
         except Exception as e:
             print(f"Failed to fetch page: {e}", file=sys.stderr)
             continue

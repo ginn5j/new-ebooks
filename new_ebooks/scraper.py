@@ -16,6 +16,7 @@ class EBook:
     cover_url: str = ""
     is_available: bool = False
     description: str = ""
+    detail_url: str = ""
 
 
 def build_search_url(base_url: str, format: str, page: int = 1) -> str:

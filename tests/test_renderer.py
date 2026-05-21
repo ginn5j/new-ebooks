@@ -2,8 +2,8 @@ from new_ebooks.renderer import render_html, render_email_html
 from new_ebooks.scraper import EBook
 
 
-def make_book(id_: str, title: str, author: str, cover: str = "", is_available: bool = False) -> EBook:
-    return EBook(overdrive_id=id_, reserve_id=f"r{id_}", title=title, first_creator_name=author, cover_url=cover, is_available=is_available)
+def make_book(id_: str, title: str, author: str, cover: str = "", is_available: bool = False, detail_url: str = "") -> EBook:
+    return EBook(overdrive_id=id_, reserve_id=f"r{id_}", title=title, first_creator_name=author, cover_url=cover, is_available=is_available, detail_url=detail_url)
 
 
 def test_render_html_with_books():
@@ -105,6 +105,32 @@ def test_render_email_html_xss_prevention():
     html = render_email_html(books, "2026-03-01")
     assert "<script>alert" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_render_html_cloudlibrary_detail_url():
+    """When detail_url is set on the book, it is used directly instead of /media/{id}."""
+    detail = "https://ebook.yourcloudlibrary.com/library/scpl/detail/abc123"
+    books = [make_book("abc123", "A Book", "Author", detail_url=detail)]
+    html = render_html(books, "2026-03-01")
+    assert f'href="{detail}"' in html
+    assert "/media/abc123" not in html
+
+
+def test_render_html_detail_url_overrides_base_url():
+    """detail_url takes precedence over the /media/{id} fallback even when base_url is set."""
+    detail = "https://ebook.yourcloudlibrary.com/library/scpl/detail/abc123"
+    books = [make_book("abc123", "A Book", "Author", detail_url=detail)]
+    html = render_html(books, "2026-03-01", library_base_url="https://spl.overdrive.com")
+    assert f'href="{detail}"' in html
+    assert "/media/abc123" not in html
+
+
+def test_render_email_html_cloudlibrary_detail_url():
+    detail = "https://ebook.yourcloudlibrary.com/library/scpl/detail/abc123"
+    books = [make_book("abc123", "A Book", "Author", detail_url=detail)]
+    html = render_email_html(books, "2026-03-01")
+    assert f'href="{detail}"' in html
+    assert "/media/abc123" not in html
 
 
 def test_render_html_description_all_tags_stripped():
