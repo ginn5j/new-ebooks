@@ -1,6 +1,7 @@
 from __future__ import annotations
 import smtplib
 import ssl
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -50,18 +51,27 @@ def send_email(
 
     port = email_config.smtp_port
     use_ssl = port == 465
+    raw = msg.as_string()
 
-    if use_ssl:
-        ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(email_config.smtp_host, port, context=ctx, timeout=30) as server:
-            if email_config.smtp_user and password:
-                server.login(email_config.smtp_user, password)
-            server.sendmail(msg["From"], [email_config.smtp_to], msg.as_string())
-    else:
-        with smtplib.SMTP(email_config.smtp_host, port, timeout=30) as server:
-            if email_config.use_tls:
+    for attempt in range(3):
+        try:
+            if use_ssl:
                 ctx = ssl.create_default_context()
-                server.starttls(context=ctx)
-            if email_config.smtp_user and password:
-                server.login(email_config.smtp_user, password)
-            server.sendmail(msg["From"], [email_config.smtp_to], msg.as_string())
+                with smtplib.SMTP_SSL(email_config.smtp_host, port, context=ctx, timeout=30) as server:
+                    if email_config.smtp_user and password:
+                        server.login(email_config.smtp_user, password)
+                    server.sendmail(msg["From"], [email_config.smtp_to], raw)
+            else:
+                with smtplib.SMTP(email_config.smtp_host, port, timeout=30) as server:
+                    if email_config.use_tls:
+                        ctx = ssl.create_default_context()
+                        server.starttls(context=ctx)
+                    if email_config.smtp_user and password:
+                        server.login(email_config.smtp_user, password)
+                    server.sendmail(msg["From"], [email_config.smtp_to], raw)
+            return
+        except (TimeoutError, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
+            if attempt < 2:
+                time.sleep(5)
+                continue
+            raise

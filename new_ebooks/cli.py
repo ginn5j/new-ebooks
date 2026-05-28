@@ -348,7 +348,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                 send_email(new_books, last_checked or "", lib_config.name, lib_config.library_base_url, email_cfg, password, email_html)
                 print(f"Email sent to {email_cfg.smtp_to}.")
             except Exception as e:
-                print(f"Failed to send email: {e}", file=sys.stderr)
+                print(f"Failed to send email: {e}")
                 if args.verbose:
                     import traceback
                     traceback.print_exc()
@@ -677,15 +677,16 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 
 
 def cmd_update_cache(args: argparse.Namespace) -> int:
-    from new_ebooks.scheduler import _cache_package, PKG_CACHE_DIR, get_schedule_info
+    from new_ebooks.scheduler import write_launcher, PKG_CACHE_DIR, LAUNCHER_PATH, get_schedule_info
 
     if not get_schedule_info():
         print("No schedule configured. Run 'new-ebooks schedule' first.", file=sys.stderr)
         return 1
 
     try:
-        _cache_package()
+        write_launcher()
         print(f"Package cache updated: {PKG_CACHE_DIR}")
+        print(f"Launcher updated: {LAUNCHER_PATH}")
     except Exception as e:
         print(f"Failed to update cache: {e}", file=sys.stderr)
         if args.verbose:
