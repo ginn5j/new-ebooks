@@ -73,3 +73,18 @@ window.OverDrive.mediaItems = {
 
 def test_parse_page_empty():
     assert parse_page("<html></html>") == []
+
+
+def test_extract_media_items_brace_semicolon_in_string():
+    """A literal '};' inside a JSON string must not truncate the match."""
+    script = 'window.OverDrive.mediaItems = {"111": {"id": "111", "description": "ends with };"}};'
+    items = extract_media_items(script)
+    assert "111" in items
+    assert items["111"]["description"] == "ends with };"
+
+
+def test_extract_title_collection_bracket_semicolon_in_string():
+    script = 'window.OverDrive.titleCollection = [{"id": "1", "description": "see [1]; done"}];'
+    items = extract_title_collection(script)
+    assert len(items) == 1
+    assert items[0]["id"] == "1"

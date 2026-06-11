@@ -1,12 +1,12 @@
 from __future__ import annotations
 import argparse
+import os
 import sys
 import time
 import tempfile
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -35,7 +35,7 @@ from new_ebooks.auth import (
 )
 import new_ebooks.cloudlibrary as cl
 from new_ebooks.checker import check_for_new_ebooks
-from new_ebooks.renderer import render_html, render_email_html, write_and_open
+from new_ebooks.renderer import format_date, render_html, render_email_html, write_and_open
 from new_ebooks.emailer import get_smtp_password, send_email
 
 
@@ -105,13 +105,24 @@ def _fetch_with_auth(
                     card_number, pin = get_credentials(lib_config.library_base_url, lib_config.member_library)
                     new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
                 lib_state.session_cookies = new_cookies
-                resp = session.get(url, timeout=30, headers=extra_headers)
-                resp.raise_for_status()
-                text = resp.text
             except Exception as e:
-                print(f"Re-authentication failed: {e}", file=sys.stderr)
+                raise RuntimeError(f"session expired and re-authentication failed: {e}") from e
+            resp = session.get(url, timeout=30, headers=extra_headers)
+            resp.raise_for_status()
+            text = resp.text
+            # Returning an unauthenticated page would be misread downstream
+            # as "no books on this page" — fail loudly instead.
+            if not auth_check(text):
+                raise RuntimeError("session expired and re-authentication did not restore access")
         return text
     return fetcher
+
+
+def _provider_tools(lib_config: LibraryConfig) -> tuple[callable, callable]:
+    """Return (url_builder, page_parser) for the library's provider."""
+    if lib_config.provider == "cloudlibrary":
+        return cl.build_search_url, partial(cl.parse_page, library_base_url=lib_config.library_base_url)
+    return build_search_url, parse_page
 
 
 def _ebook_to_state(book: EBook) -> EBookState:
@@ -199,13 +210,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     lib_state = LibraryState(session_cookies=cookies)
     fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=0.0)
-
-    if provider_input == "cloudlibrary":
-        _url_builder = cl.build_search_url
-        _page_parser = partial(cl.parse_page, library_base_url=library_url)
-    else:
-        _url_builder = build_search_url
-        _page_parser = parse_page
+    _url_builder, _page_parser = _provider_tools(lib_config)
 
     # Fetch page 1 to establish anchor
     search_url = _url_builder(library_url, fmt, 1)
@@ -248,7 +253,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 1
 
     # Select libraries
-    if hasattr(args, "library") and args.library:
+    if args.library:
         libs = [lib for lib in config.libraries if lib.name == args.library]
         if not libs:
             print(f"Library '{args.library}' not found.", file=sys.stderr)
@@ -265,11 +270,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         if lib_config.provider == "cloudlibrary":
             cl.init_session(session, lib_config.library_base_url)
-            _url_builder = cl.build_search_url
-            _page_parser = partial(cl.parse_page, library_base_url=lib_config.library_base_url)
-        else:
-            _url_builder = None
-            _page_parser = None
+        _url_builder, _page_parser = _provider_tools(lib_config)
 
         fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=lib_config.request_delay_seconds)
 
@@ -305,10 +306,11 @@ def cmd_check(args: argparse.Namespace) -> int:
                 print("No books found.", file=sys.stderr)
             continue
 
-        use_email = hasattr(args, "email") and args.email
+        use_email = args.email
 
         if not new_books:
-            print(f"No new eBooks since {last_checked}.")
+            print(f"No new eBooks since {format_date(last_checked)}.")
+            lib_state.last_checked = now
             lib_state.session_cookies = dict(session.cookies)
             state.libraries[url] = lib_state
             save_state(state, state_path, config.max_state_backups)
@@ -324,11 +326,11 @@ def cmd_check(args: argparse.Namespace) -> int:
 
             # Render HTML
             html = render_html(new_books, last_checked or "", lib_config.name, lib_config.library_base_url)
-            tmp = Path(tempfile.mktemp(suffix=".html", prefix="new_ebooks_"))
+            fd, tmp_name = tempfile.mkstemp(suffix=".html", prefix="new_ebooks_")
+            os.close(fd)
+            tmp = Path(tmp_name)
 
-            force_open = hasattr(args, "open") and args.open
-            no_open = hasattr(args, "no_open") and args.no_open
-            auto_open = force_open if use_email else not no_open
+            auto_open = args.open if use_email else not args.no_open
 
             write_and_open(html, tmp, auto_open=auto_open)
             if auto_open:
@@ -343,6 +345,10 @@ def cmd_check(args: argparse.Namespace) -> int:
                 exit_code = 1
                 continue
             password = get_smtp_password(email_cfg.smtp_user) or ""
+            if email_cfg.smtp_user and not password:
+                print("SMTP password not set. Run 'new-ebooks email' to store it.", file=sys.stderr)
+                exit_code = 1
+                continue
             try:
                 email_html = render_email_html(new_books, last_checked or "", lib_config.name, lib_config.library_base_url)
                 send_email(new_books, last_checked or "", lib_config.name, lib_config.library_base_url, email_cfg, password, email_html)
@@ -367,7 +373,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
         print("No libraries configured.", file=sys.stderr)
         return 1
 
-    if hasattr(args, "library") and args.library:
+    if args.library:
         libs = [lib for lib in config.libraries if lib.name == args.library]
         if not libs:
             print(f"Library '{args.library}' not found.", file=sys.stderr)
@@ -382,11 +388,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
 
         if lib_config.provider == "cloudlibrary":
             cl.init_session(session, url)
-            _url_builder = cl.build_search_url
-            _page_parser = partial(cl.parse_page, library_base_url=url)
-        else:
-            _url_builder = build_search_url
-            _page_parser = parse_page
+        _url_builder, _page_parser = _provider_tools(lib_config)
 
         fetcher = _fetch_with_auth(session, lib_config, lib_state)
 
@@ -515,13 +517,16 @@ def cmd_edit(args: argparse.Namespace) -> int:
         print("Unknown provider. Use 'overdrive' or 'cloudlibrary'.", file=sys.stderr)
         return 1
 
-    current_member = lib.member_library or "(none)"
-    default_consortium = "y" if lib.member_library else "n"
-    is_consortium = input(f"Is this a consortial Overdrive site? (y/n) [{default_consortium}]: ").strip().lower() or default_consortium
-    if is_consortium == "y":
-        member_library = input(f"Member library name [{current_member}]: ").strip() or lib.member_library
-    else:
+    if provider_input == "cloudlibrary":
         member_library = None
+    else:
+        current_member = lib.member_library or "(none)"
+        default_consortium = "y" if lib.member_library else "n"
+        is_consortium = input(f"Is this a consortial Overdrive site? (y/n) [{default_consortium}]: ").strip().lower() or default_consortium
+        if is_consortium == "y":
+            member_library = input(f"Member library name [{current_member}]: ").strip() or lib.member_library
+        else:
+            member_library = None
 
     lib.name = name
     lib.library_base_url = library_url
@@ -730,7 +735,6 @@ def main() -> None:
     # check
     check_p = subparsers.add_parser("check", help="Check for new eBooks")
     check_p.add_argument("--library", metavar="NAME", help="Check a specific library by name")
-    check_p.add_argument("--all", action="store_true", help="Check all libraries (default)")
     check_p.add_argument("--no-open", action="store_true", help="Don't open results in browser")
     check_p.add_argument("--email", action="store_true", help="Send results by email (skips browser by default)")
     check_p.add_argument("--open", action="store_true", help="Open results in browser even when --email is used")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 import shutil
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -75,4 +76,9 @@ def save_state(state: State, path: Path = DEFAULT_STATE_PATH, max_backups: int =
         else:
             entry["most_recent_ebook"] = None
         data["libraries"][url] = entry
-    path.write_text(json.dumps(data, indent=2))
+    # Write atomically: session cookies live here, so keep it private (0600),
+    # and a crash mid-write must not corrupt the existing state file.
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)

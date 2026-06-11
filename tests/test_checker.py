@@ -112,7 +112,7 @@ window.OverDrive.mediaItems = {items_json};
 
 
 def test_safety_valve(monkeypatch):
-    """If anchor is never found, stop at MAX_PAGES."""
+    """If anchor is never found, stop at MAX_PAGES; repeated pages are de-duplicated."""
     monkeypatch.setattr("new_ebooks.checker.MAX_PAGES", 3)
 
     page_html = _make_html({"new1": "New Book 1", "new2": "New Book 2"})
@@ -125,8 +125,34 @@ def test_safety_valve(monkeypatch):
     )
 
     new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
-    # Should have collected 3 pages * 2 books = 6 books
-    assert len(new_books) == 6
+    # 3 pages of the same 2 books — each book counted once
+    assert len(new_books) == 2
+    assert [b.overdrive_id for b in new_books] == ["new1", "new2"]
+
+
+def test_page_shift_duplicates_removed(monkeypatch):
+    """A book that shifts from the bottom of page 1 to the top of page 2 appears once."""
+    monkeypatch.setattr("new_ebooks.checker.MAX_PAGES", 5)
+
+    page1_html = _make_html({"101": "Book A", "102": "Book B"})
+    # "102" repeats at the top of page 2 (list shifted mid-check)
+    page2_html = _make_html({"102": "Book B", "103": "Book C", "anchor_id": "The Anchor"})
+
+    pages = [page1_html, page2_html]
+    call_count = [0]
+
+    def fetcher(url: str) -> str:
+        html = pages[call_count[0]]
+        call_count[0] += 1
+        return html
+
+    lib_state = LibraryState(
+        most_recent_ebook=EBookState("anchor_id", "r0", "The Anchor", "Old Author")
+    )
+
+    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    assert [b.overdrive_id for b in new_books] == ["101", "102", "103"]
+    assert anchor.overdrive_id == "101"
 
 
 # --- CloudLibrary-style provider override (url_builder + page_parser) ---

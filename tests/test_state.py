@@ -53,6 +53,15 @@ def test_backup_filenames_are_numeric_timestamps(tmp_path):
     assert all(b.suffix.lstrip(".").isdigit() for b in backups)
 
 
+def test_save_leaves_no_temp_file_and_restricts_permissions(tmp_path):
+    state_path = tmp_path / "state.json"
+    save_state(State(), state_path, max_backups=0)
+    assert state_path.exists()
+    assert not (tmp_path / "state.json.tmp").exists()
+    # State holds session cookies — must be private
+    assert (state_path.stat().st_mode & 0o777) == 0o600
+
+
 def test_state_roundtrip_after_backup(tmp_path):
     state_path = tmp_path / "state.json"
     original = State(libraries={"https://example.com": LibraryState(last_checked="2026-01-01")})

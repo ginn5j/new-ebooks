@@ -1,4 +1,4 @@
-from new_ebooks.renderer import render_html, render_email_html
+from new_ebooks.renderer import build_heading, format_date, render_html, render_email_html
 from new_ebooks.scraper import EBook
 
 
@@ -19,7 +19,7 @@ def test_render_html_with_books():
     assert "Async &amp; Await" in html  # & is escaped in HTML output
     assert "Trio Author" in html
     assert "Test Library" in html
-    assert "2026-03-01" in html
+    assert "Mar 1, 2026" in html
 
 
 def test_render_html_no_books():
@@ -90,7 +90,7 @@ def test_render_email_html_no_style_block():
     assert "Python Mastery" in html
     assert "Guido V." in html
     assert "Test Library" in html
-    assert "2026-03-01" in html
+    assert "Mar 1, 2026" in html
 
 
 def test_render_email_html_no_js():
@@ -154,3 +154,39 @@ def test_render_html_description_all_tags_stripped():
     assert "<em>italic</em>" not in html
     # Both cards present as siblings (not nested)
     assert html.count('class="book-card"') == 2
+
+
+def test_format_date():
+    assert format_date("2026-03-01T09:30:00+00:00") == "Mar 1, 2026"
+    assert format_date("2026-03-01") == "Mar 1, 2026"
+    # Unparseable strings pass through unchanged
+    assert format_date("the beginning") == "the beginning"
+    assert format_date("") == ""
+
+
+def test_build_heading():
+    assert build_heading(0, "", "") == "No new eBooks"
+    assert build_heading(1, "", "") == "1 new eBook"
+    assert build_heading(5, "2026-03-01", "Test Library") == "5 new eBooks since Mar 1, 2026 — Test Library"
+
+
+def test_render_html_url_attributes_escaped():
+    """Quotes in scraped URLs must not break out of href/src attributes."""
+    evil = 'https://example.com/x" onmouseover="alert(1)'
+    books = [make_book("1", "A Book", "Author", cover=evil, detail_url=evil)]
+    html = render_html(books, "2026-03-01")
+    assert 'onmouseover="alert(1)' not in html
+    assert "&quot;" in html
+
+
+def test_render_email_html_url_attributes_escaped():
+    evil = 'https://example.com/x" onmouseover="alert(1)'
+    books = [make_book("1", "A Book", "Author", cover=evil, detail_url=evil)]
+    html = render_email_html(books, "2026-03-01")
+    assert 'onmouseover="alert(1)' not in html
+
+
+def test_render_html_heading_escaped():
+    html = render_html([], "2026-03-01", library_name="<b>Lib & Co</b>")
+    assert "<b>Lib" not in html
+    assert "&lt;b&gt;Lib &amp; Co&lt;/b&gt;" in html

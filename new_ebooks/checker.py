@@ -1,5 +1,4 @@
 from __future__ import annotations
-import time
 from typing import Callable, Optional
 
 from new_ebooks.config import LibraryConfig
@@ -39,6 +38,16 @@ def check_for_new_ebooks(
 
     new_books: list[EBook] = []
     new_anchor: Optional[EBook] = None
+    seen_ids: set[str] = set()
+
+    def add_new(books: list[EBook]) -> None:
+        # Pagination can shift while a check is running (a title added
+        # mid-check pushes books from the bottom of one page to the top of
+        # the next), so the same book may appear on consecutive pages.
+        for book in books:
+            if book.overdrive_id not in seen_ids:
+                seen_ids.add(book.overdrive_id)
+                new_books.append(book)
 
     for page_num in range(1, MAX_PAGES + 1):
         url = url_builder(config.library_base_url, config.format, page_num)
@@ -56,10 +65,10 @@ def check_for_new_ebooks(
         idx = find_anchor(books, anchor_id)
         if idx is None:
             # Anchor not on this page — all books are new
-            new_books.extend(books)
+            add_new(books)
         else:
             # Anchor found — take everything before it
-            new_books.extend(books[:idx])
+            add_new(books[:idx])
             break
 
     else:

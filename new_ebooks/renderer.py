@@ -1,6 +1,8 @@
 from __future__ import annotations
+import html as html_mod
 import re
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 from new_ebooks.scraper import EBook
@@ -8,11 +10,39 @@ from new_ebooks.scraper import EBook
 _ALL_TAGS_RE = re.compile(r'<[^>]+>')
 
 
+def _escape(text: str) -> str:
+    return html_mod.escape(text, quote=True)
+
+
 def _sanitize_description(html: str) -> str:
     """Strip all HTML tags and return plain text, HTML-escaped for safe insertion."""
     text = _ALL_TAGS_RE.sub(" ", html)
     text = re.sub(r" {2,}", " ", text).strip()
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return _escape(text)
+
+
+def format_date(iso_timestamp: str) -> str:
+    """Format an ISO timestamp for display (e.g. 'Jun 11, 2026'); pass through anything unparseable."""
+    try:
+        dt = datetime.fromisoformat(iso_timestamp)
+    except (ValueError, TypeError):
+        return iso_timestamp
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+
+
+def build_heading(count: int, last_checked: str, library_name: str) -> str:
+    """Build the 'N new eBooks since X — Lib' string used for page headings and email subjects."""
+    if count == 0:
+        heading = "No new eBooks"
+    elif count == 1:
+        heading = "1 new eBook"
+    else:
+        heading = f"{count} new eBooks"
+    if last_checked:
+        heading += f" since {format_date(last_checked)}"
+    if library_name:
+        heading += f" — {library_name}"
+    return heading
 
 PLACEHOLDER_SVG = (
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='200' "
@@ -75,26 +105,15 @@ h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #333; }
 
 
 def render_html(books: list[EBook], last_checked: str, library_name: str = "", library_base_url: str = "") -> str:
-    count = len(books)
-    if count == 0:
-        heading = "No new eBooks"
-    elif count == 1:
-        heading = "1 new eBook"
-    else:
-        heading = f"{count} new eBooks"
-
-    if last_checked:
-        heading += f" since {last_checked}"
-    if library_name:
-        heading += f" — {library_name}"
+    heading = build_heading(len(books), last_checked, library_name)
 
     cards = []
     for book in books:
-        src = book.cover_url if book.cover_url else PLACEHOLDER_SVG
-        title_escaped = book.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-        author_escaped = book.first_creator_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        src = _escape(book.cover_url) if book.cover_url else PLACEHOLDER_SVG
+        title_escaped = _escape(book.title)
+        author_escaped = _escape(book.first_creator_name)
         if library_base_url or book.detail_url:
-            detail_url = book.detail_url or f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
+            detail_url = _escape(book.detail_url or f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}")
             if book.is_available:
                 link = f'<a class="book-link borrow" href="{detail_url}" target="_blank">Borrow</a>'
             else:
@@ -116,16 +135,17 @@ def render_html(books: list[EBook], last_checked: str, library_name: str = "", l
         cards.append(card)
 
     cards_html = "\n".join(cards)
+    heading_escaped = _escape(heading)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{heading}</title>
+<title>{heading_escaped}</title>
 <style>{CSS}</style>
 </head>
 <body>
-<h1>{heading}</h1>
+<h1>{heading_escaped}</h1>
 <div class="grid">
 {cards_html}
 </div>
@@ -135,24 +155,13 @@ def render_html(books: list[EBook], last_checked: str, library_name: str = "", l
 
 def render_email_html(books: list[EBook], last_checked: str, library_name: str = "", library_base_url: str = "") -> str:
     """Render an email-safe HTML version with all styles inlined (no <style> block)."""
-    count = len(books)
-    if count == 0:
-        heading = "No new eBooks"
-    elif count == 1:
-        heading = "1 new eBook"
-    else:
-        heading = f"{count} new eBooks"
-
-    if last_checked:
-        heading += f" since {last_checked}"
-    if library_name:
-        heading += f" — {library_name}"
+    heading = build_heading(len(books), last_checked, library_name)
 
     cards = []
     for book in books:
-        src = book.cover_url if book.cover_url else ""
-        title_escaped = book.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-        author_escaped = book.first_creator_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        src = _escape(book.cover_url) if book.cover_url else ""
+        title_escaped = _escape(book.title)
+        author_escaped = _escape(book.first_creator_name)
         cover_html = (
             f'<img src="{src}" alt="Cover" width="150" height="200" '
             f'style="width:150px;height:200px;object-fit:contain;background:#eee;display:block;">'
@@ -161,7 +170,7 @@ def render_email_html(books: list[EBook], last_checked: str, library_name: str =
             'justify-content:center;color:#999;font-size:13px;">No Cover</div>'
         )
         if library_base_url or book.detail_url:
-            detail_url = book.detail_url or f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}"
+            detail_url = _escape(book.detail_url or f"{library_base_url.rstrip('/')}/media/{book.overdrive_id}")
             if book.is_available:
                 link = (
                     f'<a href="{detail_url}" style="display:block;margin:8px 10px;padding:6px 0;'
@@ -196,7 +205,7 @@ def render_email_html(books: list[EBook], last_checked: str, library_name: str =
         cards.append(card)
 
     cards_html = "\n".join(cards)
-    heading_escaped = heading.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    heading_escaped = _escape(heading)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>

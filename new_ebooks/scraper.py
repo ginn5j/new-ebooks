@@ -24,21 +24,30 @@ def build_search_url(base_url: str, format: str, page: int = 1) -> str:
     return f"{base_url}/search/title?format={format}&sortBy=newlyadded&page={page}"
 
 
+def _extract_json(script_text: str, prefix: str, open_close: str, default):
+    # The lazy match stops at the first close+semicolon, which can occur
+    # inside a JSON string (e.g. a description containing "};"). If that
+    # truncated capture fails to parse, retry greedily.
+    o, c = open_close
+    for quantifier in ("*?", "*"):
+        pattern = rf"{prefix}\s*=\s*(\{o}.{quantifier}\{c});"
+        match = re.search(pattern, script_text, re.DOTALL)
+        if not match:
+            return default
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+    return default
+
+
 def extract_media_items(script_text: str) -> dict:
-    pattern = r"window\.OverDrive\.mediaItems\s*=\s*(\{.*?\});"
-    match = re.search(pattern, script_text, re.DOTALL)
-    if not match:
-        return {}
-    return json.loads(match.group(1))
+    return _extract_json(script_text, r"window\.OverDrive\.mediaItems", "{}", {})
 
 
 def extract_title_collection(script_text: str) -> list[dict]:
     """Extract the raw ordered titleCollection array from a script block."""
-    pattern = r"window\.OverDrive\.titleCollection\s*=\s*(\[.*?\]);"
-    match = re.search(pattern, script_text, re.DOTALL)
-    if not match:
-        return []
-    return json.loads(match.group(1))
+    return _extract_json(script_text, r"window\.OverDrive\.titleCollection", "[]", [])
 
 
 def _cover_url(covers: dict) -> str:

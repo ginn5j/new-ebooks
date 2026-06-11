@@ -1,5 +1,6 @@
 from __future__ import annotations
 import smtplib
+import socket
 import ssl
 import time
 from email.mime.multipart import MIMEMultipart
@@ -9,6 +10,7 @@ from typing import Optional
 import keyring
 
 from new_ebooks.config import EmailConfig
+from new_ebooks.renderer import build_heading
 from new_ebooks.scraper import EBook
 
 KEYRING_SERVICE = "new-ebooks-smtp"
@@ -31,17 +33,7 @@ def send_email(
     password: str,
     html: str,
 ) -> None:
-    count = len(books)
-    if count == 0:
-        subject = "No new eBooks"
-    elif count == 1:
-        subject = "1 new eBook"
-    else:
-        subject = f"{count} new eBooks"
-    if last_checked:
-        subject += f" since {last_checked}"
-    if library_name:
-        subject += f" — {library_name}"
+    subject = build_heading(len(books), last_checked, library_name)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -70,7 +62,8 @@ def send_email(
                         server.login(email_config.smtp_user, password)
                     server.sendmail(msg["From"], [email_config.smtp_to], raw)
             return
-        except (TimeoutError, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
+        # socket.timeout is a distinct class before Python 3.10
+        except (TimeoutError, socket.timeout, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
             if attempt < 2:
                 time.sleep(5)
                 continue
