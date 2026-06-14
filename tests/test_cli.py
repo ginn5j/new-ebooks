@@ -62,8 +62,29 @@ def test_fetcher_raises_when_reauth_does_not_restore_access():
 def test_provider_tools_overdrive():
     config = LibraryConfig(name="L", library_base_url="https://spl.overdrive.com")
     url_builder, page_parser = _provider_tools(config)
-    assert url_builder is build_search_url
+    # Default (language unset) preserves the no-filter behavior.
+    url = url_builder("https://spl.overdrive.com", "ebook-kindle", 1)
+    assert "language=" not in url
     assert page_parser is parse_page
+
+
+def test_provider_tools_overdrive_language_english():
+    config = LibraryConfig(
+        name="L", library_base_url="https://spl.overdrive.com", language="english"
+    )
+    url_builder, _ = _provider_tools(config)
+    url = url_builder("https://spl.overdrive.com", "ebook-kindle", 1)
+    assert url.endswith("&language=en")
+
+
+def test_provider_tools_cloudlibrary_language_all():
+    config = LibraryConfig(
+        name="L", library_base_url=CL_CONFIG.library_base_url,
+        format="digital", provider="cloudlibrary", language="all",
+    )
+    url_builder, _ = _provider_tools(config)
+    url = url_builder(CL_CONFIG.library_base_url, "digital", 1)
+    assert "language=" not in url
 
 
 def test_provider_tools_cloudlibrary():

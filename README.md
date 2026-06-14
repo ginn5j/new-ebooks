@@ -30,6 +30,7 @@ You will be prompted for:
 - **Format**
   - Overdrive: e.g. `ebook-epub-adobe` or `ebook-kindle`
   - CloudLibrary: `digital` (default) or `audio`
+- **Language filter** — `all` or `english`. Restricts the search to a single language. The default matches each provider's existing behavior: Overdrive defaults to `all` (no filter), CloudLibrary defaults to `english`.
 - **Request delay** — seconds to wait between page fetches (default: 1.0)
 
 For **Overdrive** libraries only:
@@ -113,7 +114,7 @@ new-ebooks status
 
 ### `new-ebooks edit`
 
-Interactively edit a library's configuration (name, URL, format, delay, provider, member library). Shows current values as defaults; press Enter to keep them.
+Interactively edit a library's configuration (name, URL, format, language filter, delay, provider, member library). Shows current values as defaults; press Enter to keep them.
 
 ```
 new-ebooks edit
@@ -159,7 +160,7 @@ Book data is read from `window.OverDrive.titleCollection` embedded in the search
 
 ### CloudLibrary
 
-Book data is fetched as JSON via the Remix `_data` route endpoint (`?_data=routes%2Flibrary.%24name.search`), sorted by `-dateadded` and filtered to English-language titles. Session initialisation requires only a GET to the library's base URL, which sets a `__config_PROD` cookie — no patron credentials are needed to browse the catalog.
+Book data is fetched as JSON via the Remix `_data` route endpoint (`?_data=routes%2Flibrary.%24name.search`), sorted by `-dateadded`. By default the search is filtered to English-language titles; set the library's language filter to `all` to include every language. Session initialisation requires only a GET to the library's base URL, which sets a `__config_PROD` cookie — no patron credentials are needed to browse the catalog.
 
 ## Credentials
 
@@ -173,7 +174,7 @@ CloudLibrary libraries do not store any credentials.
 
 | File | Purpose |
 |------|---------|
-| `~/.config/new_ebooks/config.json` | Library names, URLs, formats, providers, member libraries, backup settings |
+| `~/.config/new_ebooks/config.json` | Library names, URLs, formats, language filters, providers, member libraries, backup settings |
 | `~/.config/new_ebooks/state.json` | Anchor books, last-checked timestamps, cached session cookies |
 | `~/.config/new_ebooks/state.json.{timestamp}` | State backups (see below) |
 

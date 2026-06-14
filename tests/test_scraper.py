@@ -14,6 +14,22 @@ def test_build_search_url_page3():
     assert url == "https://spl.overdrive.com/search/title?format=ebook-epub&sortBy=newlyadded&page=3"
 
 
+def test_build_search_url_language_default_no_filter():
+    """Default (no language) preserves the original no-filter behavior."""
+    url = build_search_url("https://spl.overdrive.com", "ebook-kindle", 1)
+    assert "language=" not in url
+
+
+def test_build_search_url_language_all_no_filter():
+    url = build_search_url("https://spl.overdrive.com", "ebook-kindle", 1, language="all")
+    assert "language=" not in url
+
+
+def test_build_search_url_language_english():
+    url = build_search_url("https://spl.overdrive.com", "ebook-kindle", 1, language="english")
+    assert url.endswith("&language=en")
+
+
 def test_extract_media_items():
     script = 'window.OverDrive.mediaItems = {"111": {"id": "111", "title": "Test"}};'
     items = extract_media_items(script)

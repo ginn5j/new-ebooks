@@ -19,9 +19,25 @@ class EBook:
     detail_url: str = ""
 
 
-def build_search_url(base_url: str, format: str, page: int = 1) -> str:
+def _overdrive_language_value(language: Optional[str]) -> str:
+    """Map a neutral language token to Overdrive's URL value.
+
+    None/"all" → no filter (current default); "english" → "en".
+    """
+    if language == "english":
+        return "en"
+    return ""
+
+
+def build_search_url(
+    base_url: str, format: str, page: int = 1, language: Optional[str] = None
+) -> str:
     base_url = base_url.rstrip("/")
-    return f"{base_url}/search/title?format={format}&sortBy=newlyadded&page={page}"
+    url = f"{base_url}/search/title?format={format}&sortBy=newlyadded&page={page}"
+    lang_value = _overdrive_language_value(language)
+    if lang_value:
+        url += f"&language={lang_value}"
+    return url
 
 
 def _extract_json(script_text: str, prefix: str, open_close: str, default):

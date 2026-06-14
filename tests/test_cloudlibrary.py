@@ -27,6 +27,26 @@ def test_build_search_url_no_trailing_slash():
     assert url1 == url2
 
 
+def test_build_search_url_language_default_is_english():
+    """Default (no language arg) preserves the original English-only behavior."""
+    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1)
+    assert "language=eng" in url
+
+
+def test_build_search_url_language_english():
+    url = build_search_url(
+        "https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1, language="english"
+    )
+    assert "language=eng" in url
+
+
+def test_build_search_url_language_all_no_filter():
+    url = build_search_url(
+        "https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1, language="all"
+    )
+    assert "language=" not in url
+
+
 # --- parse_page ---
 
 SAMPLE_JSON = json.dumps({

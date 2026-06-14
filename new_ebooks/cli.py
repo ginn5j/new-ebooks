@@ -7,6 +7,7 @@ import tempfile
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
+from typing import Optional
 
 import requests
 
@@ -119,10 +120,40 @@ def _fetch_with_auth(
 
 
 def _provider_tools(lib_config: LibraryConfig) -> tuple[callable, callable]:
-    """Return (url_builder, page_parser) for the library's provider."""
+    """Return (url_builder, page_parser) for the library's provider.
+
+    The configured language filter is bound into the url_builder so the
+    checker's url_builder(base_url, format, page) call is unchanged.
+    """
+    language = lib_config.language
     if lib_config.provider == "cloudlibrary":
-        return cl.build_search_url, partial(cl.parse_page, library_base_url=lib_config.library_base_url)
-    return build_search_url, parse_page
+        return (
+            partial(cl.build_search_url, language=language),
+            partial(cl.parse_page, library_base_url=lib_config.library_base_url),
+        )
+    return partial(build_search_url, language=language), parse_page
+
+
+def _default_language(provider: str) -> str:
+    """The language token matching each provider's current default behavior."""
+    return "all" if provider == "overdrive" else "english"
+
+
+def _normalize_language(value: str) -> Optional[str]:
+    """Parse user input into a stored token, or None if unrecognized."""
+    v = value.strip().lower()
+    if v in ("all", "none", ""):
+        return "all"
+    if v in ("english", "en", "eng"):
+        return "english"
+    return None
+
+
+def _prompt_language(provider: str, current: Optional[str] = None) -> Optional[str]:
+    """Prompt for a language filter. Returns the token, or None on bad input."""
+    default = current if current is not None else _default_language(provider)
+    raw = input(f"Language filter (all/english) [{default}]: ").strip() or default
+    return _normalize_language(raw)
 
 
 def _ebook_to_state(book: EBook) -> EBookState:
@@ -161,6 +192,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         fmt = input("Format (e.g. ebook-epub-adobe, ebook-kindle) [ebook-epub-adobe]: ").strip() or "ebook-epub-adobe"
 
+    language = _prompt_language(provider_input)
+    if language is None:
+        print("Unknown language filter. Use 'all' or 'english'.", file=sys.stderr)
+        return 1
+
     delay_str = input("Request delay seconds [1.0]: ").strip() or "1.0"
     try:
         delay = float(delay_str)
@@ -191,6 +227,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         request_delay_seconds=delay,
         member_library=member_library,
         provider=provider_input,
+        language=language,
     )
 
     print("Authenticating...")
@@ -432,6 +469,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  URL:      {url}")
         print(f"  Provider: {lib.provider}")
         print(f"  Format:   {lib.format}")
+        print(f"  Language: {lib.language or _default_language(lib.provider)}")
         if lib.member_library:
             print(f"  Member:   {lib.member_library}")
 
@@ -528,12 +566,18 @@ def cmd_edit(args: argparse.Namespace) -> int:
         else:
             member_library = None
 
+    language = _prompt_language(provider_input, current=lib.language)
+    if language is None:
+        print("Unknown language filter. Use 'all' or 'english'.", file=sys.stderr)
+        return 1
+
     lib.name = name
     lib.library_base_url = library_url
     lib.format = fmt
     lib.request_delay_seconds = delay
     lib.provider = provider_input
     lib.member_library = member_library
+    lib.language = language
 
     save_config(config, config_path)
     print(f"Saved. Run 'new-ebooks reset --library \"{lib.name}\"' to re-establish the anchor.")
