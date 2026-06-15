@@ -118,3 +118,37 @@ def test_legacy_anchor_not_written_back(tmp_path):
     entry = json.loads(state_path.read_text())["libraries"]["https://x.com"]
     assert "most_recent_ebook" not in entry
     assert entry["anchors"] == {}
+
+
+def test_cloudlibrary_legacy_anchor_keys_migrate(tmp_path):
+    """Legacy 'digital'/'audio' anchor keys migrate to 'ebook'/'audiobook'."""
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"libraries": {"https://x.com": {
+        "anchors": {
+            "digital": {"overdrive_id": "1", "reserve_id": "", "title": "E", "first_creator_name": "A"},
+            "audio": {"overdrive_id": "2", "reserve_id": "", "title": "Au", "first_creator_name": "A"},
+        },
+        "last_checked": "2026-01-01",
+        "session_cookies": {},
+    }}}))
+    loaded = load_state(state_path)
+    anchors = loaded.libraries["https://x.com"].anchors
+    assert set(anchors) == {"ebook", "audiobook"}
+    assert anchors["ebook"].overdrive_id == "1"
+    assert anchors["audiobook"].overdrive_id == "2"
+
+
+def test_migrated_anchor_keys_persist_on_save(tmp_path):
+    """After load-migration, the renamed keys are what get written back."""
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"libraries": {"https://x.com": {
+        "anchors": {
+            "digital": {"overdrive_id": "1", "reserve_id": "", "title": "E", "first_creator_name": "A"},
+        },
+        "last_checked": "2026-01-01",
+        "session_cookies": {},
+    }}}))
+    loaded = load_state(state_path)
+    save_state(loaded, state_path, max_backups=0)
+    entry = json.loads(state_path.read_text())["libraries"]["https://x.com"]
+    assert set(entry["anchors"]) == {"ebook"}

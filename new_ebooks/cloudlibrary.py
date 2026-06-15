@@ -18,6 +18,13 @@ def _cloudlibrary_language_value(language: Optional[str]) -> str:
     return "eng"
 
 
+# The friendly config tokens ("ebook"/"audiobook") match the renderer's media
+# kinds and Overdrive's "audiobook" media type. CloudLibrary's search endpoint
+# expects different wire values, so map them here. Any value not in the map
+# (e.g. a raw "digital"/"audio" that slipped through) passes through unchanged.
+_FORMAT_QUERY = {"ebook": "digital", "audiobook": "audio"}
+
+
 def build_search_url(
     base_url: str, format: str, page: int = 1, language: Optional[str] = None
 ) -> str:
@@ -25,7 +32,7 @@ def build_search_url(
     params = {
         "_data": "routes/library.$name.search",
         "sort": "-dateadded",
-        "format": format,
+        "format": _FORMAT_QUERY.get(format, format),
     }
     lang_value = _cloudlibrary_language_value(language)
     if lang_value:

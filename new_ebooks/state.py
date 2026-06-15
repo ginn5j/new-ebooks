@@ -8,6 +8,12 @@ from typing import Optional
 
 DEFAULT_STATE_PATH = Path.home() / ".config" / "new_ebooks" / "state.json"
 
+# Anchors are keyed by format string. CloudLibrary's legacy "digital"/"audio"
+# format values were standardized to "ebook"/"audiobook"; migrate the matching
+# anchor keys on load. These tokens are CloudLibrary-only, so the rename is safe
+# to apply unconditionally (state has no provider context here).
+_ANCHOR_KEY_MIGRATION = {"digital": "ebook", "audio": "audiobook"}
+
 
 @dataclass
 class EBookState:
@@ -41,7 +47,7 @@ def load_state(path: Path = DEFAULT_STATE_PATH) -> Optional[State]:
     libraries = {}
     for url, lib_data in data.get("libraries", {}).items():
         anchors = {
-            fmt: EBookState(**a)
+            _ANCHOR_KEY_MIGRATION.get(fmt, fmt): EBookState(**a)
             for fmt, a in (lib_data.get("anchors") or {}).items()
         }
         # Migrate a legacy single-format anchor. State has no access to the
