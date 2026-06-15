@@ -21,20 +21,29 @@ def check_for_new_ebooks(
     fetcher: Callable[[str], str],
     url_builder: Optional[Callable] = None,
     page_parser: Optional[Callable] = None,
+    fmt: Optional[str] = None,
+    anchor_id: Optional[str] = None,
 ) -> tuple[list[EBook], Optional[EBook]]:
     """
-    Returns (new_books, new_anchor).
-    new_anchor is the book to save as most_recent_ebook for next run.
-    If this is the first run (lib_state is None or has no anchor), returns ([], first_book).
+    Check a single format and return (new_books, new_anchor).
+    new_anchor is the book to save as this format's anchor for the next run.
+    If this is the first run (no anchor for the format), returns ([], first_book).
+
+    ``fmt`` defaults to the library's primary (first) format; ``anchor_id``
+    defaults to that format's stored anchor.
     """
     if url_builder is None:
         url_builder = build_search_url
     if page_parser is None:
         page_parser = parse_page
 
-    anchor_id = None
-    if lib_state and lib_state.most_recent_ebook:
-        anchor_id = lib_state.most_recent_ebook.overdrive_id
+    if fmt is None:
+        fmt = config.formats[0]
+
+    if anchor_id is None and lib_state:
+        anchor = lib_state.anchors.get(fmt)
+        if anchor:
+            anchor_id = anchor.overdrive_id
 
     new_books: list[EBook] = []
     new_anchor: Optional[EBook] = None
@@ -50,7 +59,7 @@ def check_for_new_ebooks(
                 new_books.append(book)
 
     for page_num in range(1, MAX_PAGES + 1):
-        url = url_builder(config.library_base_url, config.format, page_num)
+        url = url_builder(config.library_base_url, fmt, page_num)
         html = fetcher(url)
         books = page_parser(html)
 

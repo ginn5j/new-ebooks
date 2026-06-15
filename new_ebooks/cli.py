@@ -36,7 +36,13 @@ from new_ebooks.auth import (
 )
 import new_ebooks.cloudlibrary as cl
 from new_ebooks.checker import check_for_new_ebooks
-from new_ebooks.renderer import format_date, render_html, render_email_html, write_and_open
+from new_ebooks.renderer import (
+    format_date,
+    page_heading,
+    render_html,
+    render_email_html,
+    write_and_open,
+)
 from new_ebooks.emailer import get_smtp_password, send_email
 
 
@@ -156,6 +162,37 @@ def _prompt_language(provider: str, current: Optional[str] = None) -> Optional[s
     return _normalize_language(raw)
 
 
+def _parse_formats(raw: str) -> list[str]:
+    """Parse a comma-separated format list, trimming blanks and duplicates."""
+    formats: list[str] = []
+    for part in raw.split(","):
+        fmt = part.strip()
+        if fmt and fmt not in formats:
+            formats.append(fmt)
+    return formats
+
+
+def _format_hint(provider: str) -> str:
+    """A short example of valid formats for the provider, including audiobooks."""
+    if provider == "cloudlibrary":
+        return "digital, audio"
+    return "ebook-epub-adobe, ebook-kindle, audiobook"
+
+
+def _prompt_formats(provider: str, current: Optional[list[str]] = None) -> list[str]:
+    """Prompt for one or more comma-separated formats. Returns the parsed list."""
+    if current:
+        default = ", ".join(current)
+    elif provider == "cloudlibrary":
+        default = "digital"
+    else:
+        default = "ebook-epub-adobe"
+    raw = input(
+        f"Formats (comma-separated, e.g. {_format_hint(provider)}) [{default}]: "
+    ).strip() or default
+    return _parse_formats(raw)
+
+
 def _ebook_to_state(book: EBook) -> EBookState:
     return EBookState(
         overdrive_id=book.overdrive_id,
@@ -187,10 +224,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("Unknown provider. Use 'overdrive' or 'cloudlibrary'.", file=sys.stderr)
         return 1
 
-    if provider_input == "cloudlibrary":
-        fmt = input("Format (digital/audio) [digital]: ").strip() or "digital"
-    else:
-        fmt = input("Format (e.g. ebook-epub-adobe, ebook-kindle) [ebook-epub-adobe]: ").strip() or "ebook-epub-adobe"
+    formats = _prompt_formats(provider_input)
+    if not formats:
+        print("At least one format is required.", file=sys.stderr)
+        return 1
 
     language = _prompt_language(provider_input)
     if language is None:
@@ -223,7 +260,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     lib_config = LibraryConfig(
         name=name,
         library_base_url=library_url,
-        format=fmt,
+        formats=formats,
         request_delay_seconds=delay,
         member_library=member_library,
         provider=provider_input,
@@ -249,23 +286,25 @@ def cmd_init(args: argparse.Namespace) -> int:
     fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=0.0)
     _url_builder, _page_parser = _provider_tools(lib_config)
 
-    # Fetch page 1 to establish anchor
-    search_url = _url_builder(library_url, fmt, 1)
-    print("Fetching first page to establish anchor...")
-    try:
-        html = fetcher(search_url)
-    except Exception as e:
-        print(f"Failed to fetch library page: {e}", file=sys.stderr)
-        return 1
+    # Fetch page 1 of each format to establish that format's anchor
+    print("Fetching first page of each format to establish anchors...")
+    for fmt in formats:
+        search_url = _url_builder(library_url, fmt, 1)
+        try:
+            html = fetcher(search_url)
+        except Exception as e:
+            print(f"Failed to fetch library page for format '{fmt}': {e}", file=sys.stderr)
+            return 1
 
-    books = _page_parser(html)
+        books = _page_parser(html)
+        if not books:
+            print(f"No books found for format '{fmt}'. Check the URL and format.", file=sys.stderr)
+            return 1
 
-    if not books:
-        print("No books found on first page. Check the URL and format.", file=sys.stderr)
-        return 1
+        anchor = books[0]
+        lib_state.anchors[fmt] = _ebook_to_state(anchor)
+        print(f"  {fmt}: tracking from \"{anchor.title}\" by {anchor.first_creator_name}")
 
-    anchor = books[0]
-    lib_state.most_recent_ebook = _ebook_to_state(anchor)
     lib_state.last_checked = datetime.now(timezone.utc).isoformat()
 
     config.libraries.append(lib_config)
@@ -274,8 +313,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     save_config(config, config_path)
     save_state(state, state_path, config.max_state_backups)
 
-    print(f"\nInitialized. Tracking from: \"{anchor.title}\" by {anchor.first_creator_name}")
-    print("Run 'new-ebooks check' to see new additions.")
+    print("\nInitialized. Run 'new-ebooks check' to see new additions.")
     return 0
 
 
@@ -311,58 +349,77 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=lib_config.request_delay_seconds)
 
-        print(f"Checking {lib_config.name}...")
-        try:
-            new_books, new_anchor = check_for_new_ebooks(
-                lib_config, lib_state, fetcher,
-                url_builder=_url_builder,
-                page_parser=_page_parser,
-            )
-        except Exception as e:
-            print(f"Error checking {lib_config.name}: {e}", file=sys.stderr)
-            if args.verbose:
-                import traceback
-                traceback.print_exc()
-            exit_code = 1
-            continue
+        # Migrate a legacy single-format anchor onto the primary format.
+        primary = lib_config.formats[0]
+        if lib_state.legacy_anchor and primary not in lib_state.anchors:
+            lib_state.anchors[primary] = lib_state.legacy_anchor
+        lib_state.legacy_anchor = None
 
         now = datetime.now(timezone.utc).isoformat()
         last_checked = lib_state.last_checked or "the beginning"
 
-        if lib_state.most_recent_ebook is None:
-            # First run — new_anchor is the anchor to save
-            if new_anchor:
-                lib_state.most_recent_ebook = _ebook_to_state(new_anchor)
-                lib_state.last_checked = now
-                lib_state.session_cookies = dict(session.cookies)
-                state.libraries[url] = lib_state
-                save_state(state, state_path, config.max_state_backups)
-                print(f"Initialized. Tracking from: \"{new_anchor.title}\" by {new_anchor.first_creator_name}")
-                print("Run 'new-ebooks check' again to see new additions.")
+        print(f"Checking {lib_config.name}...")
+        sections: list[tuple[str, list[EBook]]] = []
+        failed = False
+        for fmt in lib_config.formats:
+            had_anchor = fmt in lib_state.anchors
+            anchor = lib_state.anchors.get(fmt)
+            anchor_id = anchor.overdrive_id if anchor else None
+            try:
+                new_books, new_anchor = check_for_new_ebooks(
+                    lib_config, lib_state, fetcher,
+                    url_builder=_url_builder,
+                    page_parser=_page_parser,
+                    fmt=fmt,
+                    anchor_id=anchor_id,
+                )
+            except Exception as e:
+                print(f"Error checking {lib_config.name} ({fmt}): {e}", file=sys.stderr)
+                if args.verbose:
+                    import traceback
+                    traceback.print_exc()
+                exit_code = 1
+                failed = True
+                break
+
+            if not had_anchor:
+                # First run for this format — establish the anchor, collect nothing.
+                if new_anchor:
+                    lib_state.anchors[fmt] = _ebook_to_state(new_anchor)
+                    print(f"  {fmt}: initialized, tracking from \"{new_anchor.title}\" by {new_anchor.first_creator_name}")
+                else:
+                    print(f"  {fmt}: no books found.", file=sys.stderr)
+                continue
+
+            # Tracked format — record results and advance the anchor.
+            sections.append((fmt, new_books))
+            if new_books:
+                print(f"  {fmt}: {len(new_books)} new.")
+                if new_anchor:
+                    lib_state.anchors[fmt] = _ebook_to_state(new_anchor)
             else:
-                print("No books found.", file=sys.stderr)
+                print(f"  {fmt}: no new titles.")
+
+        if failed:
             continue
 
+        # Persist this library's state (anchors, timestamp, cookies) once.
+        lib_state.last_checked = now
+        lib_state.session_cookies = dict(session.cookies)
+        state.libraries[url] = lib_state
+        save_state(state, state_path, config.max_state_backups)
+
         use_email = args.email
+        total_new = sum(len(books) for _, books in sections)
 
-        if not new_books:
-            print(f"No new eBooks since {format_date(last_checked)}.")
-            lib_state.last_checked = now
-            lib_state.session_cookies = dict(session.cookies)
-            state.libraries[url] = lib_state
-            save_state(state, state_path, config.max_state_backups)
+        # Every format was first-run — nothing to present yet.
+        if not sections:
+            continue
+
+        if total_new == 0:
+            print(f"No new titles since {format_date(last_checked)}.")
         else:
-            print(f"Found {len(new_books)} new eBook(s).")
-            # Update state
-            if new_anchor:
-                lib_state.most_recent_ebook = _ebook_to_state(new_anchor)
-            lib_state.last_checked = now
-            lib_state.session_cookies = dict(session.cookies)
-            state.libraries[url] = lib_state
-            save_state(state, state_path, config.max_state_backups)
-
-            # Render HTML
-            html = render_html(new_books, last_checked or "", lib_config.name, lib_config.library_base_url)
+            html = render_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url)
             fd, tmp_name = tempfile.mkstemp(suffix=".html", prefix="new_ebooks_")
             os.close(fd)
             tmp = Path(tmp_name)
@@ -387,8 +444,9 @@ def cmd_check(args: argparse.Namespace) -> int:
                 exit_code = 1
                 continue
             try:
-                email_html = render_email_html(new_books, last_checked or "", lib_config.name, lib_config.library_base_url)
-                send_email(new_books, last_checked or "", lib_config.name, lib_config.library_base_url, email_cfg, password, email_html)
+                subject = page_heading(sections, last_checked or "", lib_config.name)
+                email_html = render_email_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url)
+                send_email(subject, email_html, email_cfg, password)
                 print(f"Email sent to {email_cfg.smtp_to}.")
             except Exception as e:
                 print(f"Failed to send email: {e}")
@@ -430,25 +488,37 @@ def cmd_reset(args: argparse.Namespace) -> int:
         fetcher = _fetch_with_auth(session, lib_config, lib_state)
 
         print(f"Resetting {lib_config.name}...")
-        try:
-            url_fetch = _url_builder(url, lib_config.format, 1)
-            html = fetcher(url_fetch)
-            books = _page_parser(html)
-        except Exception as e:
-            print(f"Failed to fetch page: {e}", file=sys.stderr)
+        # A reset rebuilds every format's anchor from scratch.
+        lib_state.anchors = {}
+        lib_state.legacy_anchor = None
+        failed = False
+        for fmt in lib_config.formats:
+            try:
+                url_fetch = _url_builder(url, fmt, 1)
+                html = fetcher(url_fetch)
+                books = _page_parser(html)
+            except Exception as e:
+                print(f"Failed to fetch page for format '{fmt}': {e}", file=sys.stderr)
+                failed = True
+                break
+
+            if not books:
+                print(f"No books found for format '{fmt}'.", file=sys.stderr)
+                failed = True
+                break
+
+            anchor = books[0]
+            lib_state.anchors[fmt] = _ebook_to_state(anchor)
+            print(f"  {fmt}: tracking from \"{anchor.title}\" by {anchor.first_creator_name}")
+
+        if failed:
             continue
 
-        if not books:
-            print("No books found.", file=sys.stderr)
-            continue
-
-        anchor = books[0]
-        lib_state.most_recent_ebook = _ebook_to_state(anchor)
         lib_state.last_checked = datetime.now(timezone.utc).isoformat()
         lib_state.session_cookies = dict(session.cookies)
         state.libraries[url] = lib_state
         save_state(state, state_path, config.max_state_backups)
-        print(f"Reset. Tracking from: \"{anchor.title}\" by {anchor.first_creator_name}")
+        print("Reset complete.")
 
     return 0
 
@@ -468,7 +538,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"\n{lib.name}")
         print(f"  URL:      {url}")
         print(f"  Provider: {lib.provider}")
-        print(f"  Format:   {lib.format}")
+        print(f"  Formats:  {', '.join(lib.formats)}")
         print(f"  Language: {lib.language or _default_language(lib.provider)}")
         if lib.member_library:
             print(f"  Member:   {lib.member_library}")
@@ -477,11 +547,15 @@ def cmd_status(args: argparse.Namespace) -> int:
             lib_state = state.libraries.get(url)
             if lib_state:
                 print(f"  Last checked: {lib_state.last_checked or 'never'}")
-                if lib_state.most_recent_ebook:
-                    mre = lib_state.most_recent_ebook
-                    print(f"  Anchor: \"{mre.title}\" by {mre.first_creator_name} (id={mre.overdrive_id})")
-                else:
-                    print("  Anchor: (none)")
+                print("  Anchors:")
+                for fmt in lib.formats:
+                    anchor = lib_state.anchors.get(fmt)
+                    if anchor is None and fmt == lib.formats[0] and lib_state.legacy_anchor:
+                        anchor = lib_state.legacy_anchor
+                    if anchor:
+                        print(f"    {fmt}: \"{anchor.title}\" by {anchor.first_creator_name} (id={anchor.overdrive_id})")
+                    else:
+                        print(f"    {fmt}: (none)")
             else:
                 print("  (no state — run 'new-ebooks init')")
         else:
@@ -545,7 +619,6 @@ def cmd_edit(args: argparse.Namespace) -> int:
 
     name = input(f"Library name [{lib.name}]: ").strip() or lib.name
     library_url = input(f"Overdrive base URL [{lib.library_base_url}]: ").strip().rstrip("/") or lib.library_base_url
-    fmt = input(f"Format [{lib.format}]: ").strip() or lib.format
     delay_str = input(f"Request delay seconds [{lib.request_delay_seconds}]: ").strip()
     delay = float(delay_str) if delay_str else lib.request_delay_seconds
 
@@ -553,6 +626,11 @@ def cmd_edit(args: argparse.Namespace) -> int:
     provider_input = input(f"Provider (overdrive/cloudlibrary) [{current_provider}]: ").strip().lower() or current_provider
     if provider_input not in ("overdrive", "cloudlibrary"):
         print("Unknown provider. Use 'overdrive' or 'cloudlibrary'.", file=sys.stderr)
+        return 1
+
+    formats = _prompt_formats(provider_input, current=lib.formats)
+    if not formats:
+        print("At least one format is required.", file=sys.stderr)
         return 1
 
     if provider_input == "cloudlibrary":
@@ -573,7 +651,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
 
     lib.name = name
     lib.library_base_url = library_url
-    lib.format = fmt
+    lib.formats = formats
     lib.request_delay_seconds = delay
     lib.provider = provider_input
     lib.member_library = member_library

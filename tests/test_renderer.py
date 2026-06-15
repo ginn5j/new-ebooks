@@ -1,4 +1,11 @@
-from new_ebooks.renderer import build_heading, format_date, render_html, render_email_html
+from new_ebooks.renderer import (
+    build_heading,
+    format_date,
+    group_sections,
+    media_kind,
+    render_html,
+    render_email_html,
+)
 from new_ebooks.scraper import EBook
 
 
@@ -190,3 +197,79 @@ def test_render_html_heading_escaped():
     html = render_html([], "2026-03-01", library_name="<b>Lib & Co</b>")
     assert "<b>Lib" not in html
     assert "&lt;b&gt;Lib &amp; Co&lt;/b&gt;" in html
+
+
+# --- Grouping by media format ---
+
+
+def test_media_kind():
+    assert media_kind("audiobook") == "audiobook"
+    assert media_kind("audio") == "audiobook"
+    assert media_kind("ebook-kindle") == "ebook"
+    assert media_kind("digital") == "ebook"
+
+
+def test_group_sections_merges_ebook_formats_and_dedupes():
+    sections = [
+        ("ebook-kindle", [make_book("1", "A", "x"), make_book("2", "B", "x")]),
+        ("ebook-epub-adobe", [make_book("2", "B", "x"), make_book("3", "C", "x")]),
+        ("audiobook", [make_book("4", "D", "x")]),
+    ]
+    groups = group_sections(sections)
+    assert [kind for kind, _ in groups] == ["ebook", "audiobook"]
+    assert [b.overdrive_id for b in groups[0][1]] == ["1", "2", "3"]  # "2" de-duped
+    assert [b.overdrive_id for b in groups[1][1]] == ["4"]
+
+
+def test_group_sections_drops_empty():
+    sections = [("ebook-kindle", [make_book("1", "A", "x")]), ("audiobook", [])]
+    groups = group_sections(sections)
+    assert [kind for kind, _ in groups] == ["ebook"]
+
+
+def test_render_html_groups_with_nav():
+    sections = [
+        ("ebook-kindle", [make_book("e1", "E Book", "Auth")]),
+        ("audiobook", [make_book("a1", "A Book", "Auth")]),
+    ]
+    html = render_html(sections, "2026-03-01", "Test Library")
+    assert "2 new titles" in html
+    assert 'id="ebooks"' in html
+    assert 'id="audiobooks"' in html
+    assert "1 new eBook" in html
+    assert "1 new audiobook" in html
+    # Navigation links between sections
+    assert 'href="#top"' in html
+    assert 'href="#ebooks"' in html
+    assert 'href="#audiobooks"' in html
+
+
+def test_render_html_single_section_no_nav():
+    sections = [("ebook-kindle", [make_book("e1", "E", "A")])]
+    html = render_html(sections, "2026-03-01")
+    assert 'class="nav"' not in html
+    assert "1 new eBook" in html
+
+
+def test_render_html_audiobook_only_heading():
+    sections = [("audiobook", [make_book("a1", "A", "Auth"), make_book("a2", "B", "Auth")])]
+    html = render_html(sections, "2026-03-01", "Lib")
+    assert "2 new audiobooks" in html
+
+
+def test_render_email_html_groups_with_nav():
+    sections = [
+        ("digital", [make_book("e1", "E", "Auth")]),
+        ("audio", [make_book("a1", "A", "Auth")]),
+    ]
+    html = render_email_html(sections, "2026-03-01", "Lib")
+    assert 'href="#audiobooks"' in html
+    assert 'href="#ebooks"' in html
+    assert "1 new eBook" in html
+    assert "1 new audiobook" in html
+
+
+def test_build_heading_noun():
+    assert build_heading(0, "", "", noun="audiobook") == "No new audiobooks"
+    assert build_heading(1, "", "", noun="audiobook") == "1 new audiobook"
+    assert build_heading(3, "", "", noun="audiobook") == "3 new audiobooks"

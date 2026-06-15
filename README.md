@@ -27,9 +27,10 @@ You will be prompted for:
 - **Library name** — a display name of your choosing
 - **Base URL** — e.g. `https://hepl.overdrive.com` or `https://ebook.yourcloudlibrary.com/library/scpl`
 - **Provider** — `overdrive` (default) or `cloudlibrary`
-- **Format**
-  - Overdrive: e.g. `ebook-epub-adobe` or `ebook-kindle`
-  - CloudLibrary: `digital` (default) or `audio`
+- **Formats** — one or more media formats to track, comma-separated. Each format is searched separately, keeps its own anchor, and gets its own section in the results.
+  - Overdrive: e.g. `ebook-epub-adobe`, `ebook-kindle`, `audiobook`
+  - CloudLibrary: `digital` and/or `audio`
+  - Audiobook values: Overdrive uses `audiobook`; CloudLibrary uses `audio`. Combine an eBook format with an audiobook format to track both, e.g. `ebook-kindle, audiobook` (Overdrive) or `digital, audio` (CloudLibrary).
 - **Language filter** — `all` or `english`. Restricts the search to a single language. The default matches each provider's existing behavior: Overdrive defaults to `all` (no filter), CloudLibrary defaults to `english`.
 - **Request delay** — seconds to wait between page fetches (default: 1.0)
 
@@ -39,13 +40,13 @@ For **Overdrive** libraries only:
 
 CloudLibrary collections are public catalogs and do not require a card number or PIN to browse.
 
-On first run, the most recently added eBook is recorded as the anchor. Run `new-ebooks check` afterwards to start seeing new additions.
+On first run, the most recently added title for each configured format is recorded as that format's anchor. Run `new-ebooks check` afterwards to start seeing new additions.
 
 ## Commands
 
 ### `new-ebooks check`
 
-Checks all configured libraries for new eBooks and opens an HTML results page in your browser. Each book card shows the cover, title, author, a short description, and a **Borrow** or **Place a Hold** button linking directly to the title page.
+Checks all configured libraries for new eBooks and opens an HTML results page in your browser. Each book card shows the cover, title, author, a short description, and a **Borrow** or **Place a Hold** button linking directly to the title page. When a library tracks more than one format, the results are grouped into sections (new eBooks, then new audiobooks) with quick-jump navigation links between them.
 
 ```
 new-ebooks check
@@ -114,7 +115,7 @@ new-ebooks status
 
 ### `new-ebooks edit`
 
-Interactively edit a library's configuration (name, URL, format, language filter, delay, provider, member library). Shows current values as defaults; press Enter to keep them.
+Interactively edit a library's configuration (name, URL, formats, language filter, delay, provider, member library). Formats are entered comma-separated. Shows current values as defaults; press Enter to keep them.
 
 ```
 new-ebooks edit
@@ -125,7 +126,7 @@ After editing, run `new-ebooks reset` to re-establish the anchor with the update
 
 ### `new-ebooks reset`
 
-Clears the anchor for a library and re-establishes it from the current first page of results. Use this after editing a library's configuration or if the anchor book has been removed from the collection.
+Clears the anchors for a library and re-establishes one per configured format from the current first page of results. Use this after editing a library's configuration or if an anchor book has been removed from the collection.
 
 ```
 new-ebooks reset
@@ -142,15 +143,15 @@ new-ebooks reset --library "Hamilton East Public Library"
 
 ## How it works
 
-The core algorithm is the same for both providers:
+The core algorithm is the same for both providers, and runs once per configured format (each format has its own anchor):
 
-1. Load the stored anchor (most recently added eBook from the previous run).
-2. Fetch the library's search results sorted by **date added**, newest first.
+1. Load the stored anchor for the format (most recently added title from the previous run).
+2. Fetch the library's search results for that format, sorted by **date added**, newest first.
 3. Paginate through results until the anchor is found:
    - Books on pages before the anchor are all new.
    - On the anchor's page, only books appearing before it are new.
-4. Save the first new book as the next anchor.
-5. Render an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and open it in the browser (or send by email if `--email` is used).
+4. Save the first new book as the next anchor for that format.
+5. Group each format's new books into sections by media type (eBooks, then audiobooks), render an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and open it in the browser (or send by email if `--email` is used).
 
 A safety valve stops pagination at 50 pages. If this triggers, the anchor was likely removed from the collection — run `new-ebooks reset`.
 
@@ -174,8 +175,8 @@ CloudLibrary libraries do not store any credentials.
 
 | File | Purpose |
 |------|---------|
-| `~/.config/new_ebooks/config.json` | Library names, URLs, formats, language filters, providers, member libraries, backup settings |
-| `~/.config/new_ebooks/state.json` | Anchor books, last-checked timestamps, cached session cookies |
+| `~/.config/new_ebooks/config.json` | Library names, URLs, formats (one or more per library), language filters, providers, member libraries, backup settings |
+| `~/.config/new_ebooks/state.json` | Per-format anchor books, last-checked timestamps, cached session cookies |
 | `~/.config/new_ebooks/state.json.{timestamp}` | State backups (see below) |
 
 ## State backups

@@ -10,7 +10,7 @@ from new_ebooks.state import LibraryState
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",
     library_base_url="https://ebook.yourcloudlibrary.com/library/scpl",
-    format="digital",
+    formats=["digital"],
     provider="cloudlibrary",
 )
 
@@ -80,7 +80,7 @@ def test_provider_tools_overdrive_language_english():
 def test_provider_tools_cloudlibrary_language_all():
     config = LibraryConfig(
         name="L", library_base_url=CL_CONFIG.library_base_url,
-        format="digital", provider="cloudlibrary", language="all",
+        formats=["digital"], provider="cloudlibrary", language="all",
     )
     url_builder, _ = _provider_tools(config)
     url = url_builder(CL_CONFIG.library_base_url, "digital", 1)

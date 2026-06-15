@@ -12,7 +12,11 @@ DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.json"
 class LibraryConfig:
     name: str
     library_base_url: str
-    format: str = "ebook-kindle"
+    # One or more media formats to track for this library (e.g. an eBook
+    # format plus "audiobook"). Each format is searched separately and keeps
+    # its own anchor. The first format is the "primary" one — see load_state
+    # for how a legacy single-format anchor is migrated.
+    formats: list[str] = field(default_factory=lambda: ["ebook-kindle"])
     request_delay_seconds: float = 1.0
     member_library: Optional[str] = None
     provider: str = "overdrive"
@@ -38,11 +42,24 @@ class Config:
     email: Optional[EmailConfig] = None
 
 
+def _library_from_dict(lib: dict) -> LibraryConfig:
+    """Build a LibraryConfig, migrating the legacy single ``format`` key.
+
+    Older config files stored one ``format`` string per library; new ones
+    store a ``formats`` list. A legacy entry becomes a single-element list.
+    """
+    lib = dict(lib)
+    legacy_format = lib.pop("format", None)
+    if "formats" not in lib and legacy_format is not None:
+        lib["formats"] = [legacy_format]
+    return LibraryConfig(**lib)
+
+
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
     if not path.exists():
         return Config()
     data = json.loads(path.read_text())
-    libraries = [LibraryConfig(**lib) for lib in data.get("libraries", [])]
+    libraries = [_library_from_dict(lib) for lib in data.get("libraries", [])]
     email = None
     if "email" in data and data["email"]:
         email = EmailConfig(**data["email"])

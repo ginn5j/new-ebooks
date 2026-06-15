@@ -7,7 +7,7 @@ from new_ebooks.state import LibraryState, EBookState
 LIB_CONFIG = LibraryConfig(
     name="Test Library",
     library_base_url="https://test.overdrive.com",
-    format="ebook-kindle",
+    formats=["ebook-kindle"],
     request_delay_seconds=0.0,
 )
 
@@ -45,7 +45,7 @@ def test_first_run_no_state():
 def test_no_new_books():
     """Anchor is first book in display order: no new books."""
     lib_state = LibraryState(
-        most_recent_ebook=EBookState("87654321", "r2", "Recursive Dreams", "Brian Stack")
+        anchors={"ebook-kindle": EBookState("87654321", "r2", "Recursive Dreams", "Brian Stack")}
     )
     def fetcher(url: str) -> str:
         from pathlib import Path
@@ -59,7 +59,7 @@ def test_no_new_books():
 def test_some_new_books():
     """Anchor is second book in display order: first book is new."""
     lib_state = LibraryState(
-        most_recent_ebook=EBookState("11111111", "r3", "Old Book", "Carl Legacy")
+        anchors={"ebook-kindle": EBookState("11111111", "r3", "Old Book", "Carl Legacy")}
     )
     def fetcher(url: str) -> str:
         from pathlib import Path
@@ -87,7 +87,7 @@ def test_multi_page(monkeypatch):
         return html
 
     lib_state = LibraryState(
-        most_recent_ebook=EBookState("anchor_id", "r0", "The Anchor", "Old Author")
+        anchors={"ebook-kindle": EBookState("anchor_id", "r0", "The Anchor", "Old Author")}
     )
 
     new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
@@ -121,7 +121,7 @@ def test_safety_valve(monkeypatch):
         return page_html
 
     lib_state = LibraryState(
-        most_recent_ebook=EBookState("missing_anchor", "r0", "Gone Book", "Author")
+        anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone Book", "Author")}
     )
 
     new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
@@ -147,7 +147,7 @@ def test_page_shift_duplicates_removed(monkeypatch):
         return html
 
     lib_state = LibraryState(
-        most_recent_ebook=EBookState("anchor_id", "r0", "The Anchor", "Old Author")
+        anchors={"ebook-kindle": EBookState("anchor_id", "r0", "The Anchor", "Old Author")}
     )
 
     new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
@@ -162,7 +162,7 @@ import json as _json
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",
     library_base_url="https://ebook.yourcloudlibrary.com/library/scpl",
-    format="digital",
+    formats=["digital"],
     request_delay_seconds=0.0,
     provider="cloudlibrary",
 )
@@ -198,9 +198,9 @@ def test_custom_url_builder_is_called():
     def fetcher(url: str) -> str:
         return _make_cl_json([("a1", "Book A", "Author A")])
 
-    lib_state = LibraryState(most_recent_ebook=EBookState("a1", "", "Book A", "Author A"))
+    lib_state = LibraryState(anchors={"digital": EBookState("a1", "", "Book A", "Author A")})
     check_for_new_ebooks(CL_CONFIG, lib_state, fetcher, url_builder=url_builder, page_parser=_cl_page_parser)
-    assert calls[0] == (CL_CONFIG.library_base_url, CL_CONFIG.format, 1)
+    assert calls[0] == (CL_CONFIG.library_base_url, CL_CONFIG.formats[0], 1)
 
 
 def test_custom_page_parser_is_called():
@@ -217,7 +217,7 @@ def test_custom_page_parser_is_called():
     def fetcher(url: str) -> str:
         return page_json
 
-    lib_state = LibraryState(most_recent_ebook=EBookState("anchor", "", "Anchor Book", "Auth"))
+    lib_state = LibraryState(anchors={"digital": EBookState("anchor", "", "Anchor Book", "Auth")})
     new_books, anchor = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=page_parser,
@@ -254,7 +254,7 @@ def test_cloudlibrary_new_books_found():
     def fetcher(url: str) -> str:
         return page_json
 
-    lib_state = LibraryState(most_recent_ebook=EBookState("anchor", "", "Old Anchor", "Auth"))
+    lib_state = LibraryState(anchors={"digital": EBookState("anchor", "", "Old Anchor", "Auth")})
     new_books, anchor = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=_cl_page_parser,
@@ -263,3 +263,57 @@ def test_cloudlibrary_new_books_found():
     assert new_books[0].overdrive_id == "new1"
     assert new_books[1].overdrive_id == "new2"
     assert anchor.overdrive_id == "new1"
+
+
+# --- Multiple formats per library ---
+
+MULTI_CONFIG = LibraryConfig(
+    name="Multi",
+    library_base_url="https://multi.overdrive.com",
+    formats=["ebook-kindle", "audiobook"],
+    request_delay_seconds=0.0,
+)
+
+
+def test_fmt_defaults_to_primary_format():
+    """Without an explicit fmt, the checker searches the first configured format."""
+    seen = []
+
+    def url_builder(base_url: str, fmt: str, page: int = 1) -> str:
+        seen.append(fmt)
+        return fmt
+
+    def fetcher(url: str) -> str:
+        return ""
+
+    check_for_new_ebooks(
+        MULTI_CONFIG, LibraryState(), fetcher,
+        url_builder=url_builder, page_parser=lambda text: [],
+    )
+    assert seen[0] == "ebook-kindle"
+
+
+def test_anchor_resolved_per_format():
+    """Each format uses its own anchor from lib_state.anchors."""
+    lib_state = LibraryState(anchors={
+        "ebook-kindle": EBookState("e_anchor", "", "Old E", "A"),
+        "audiobook": EBookState("a_anchor", "", "Old Audio", "A"),
+    })
+
+    def url_builder(base_url: str, fmt: str, page: int = 1) -> str:
+        return fmt  # the fetcher echoes this back as the "page" body
+
+    def page_parser(text: str) -> list[EBook]:
+        if text == "audiobook":
+            return [make_book("a_new", "New Audio"), make_book("a_anchor", "Old Audio")]
+        return [make_book("e_new", "New E"), make_book("e_anchor", "Old E")]
+
+    def fetcher(url: str) -> str:
+        return url
+
+    new_books, anchor = check_for_new_ebooks(
+        MULTI_CONFIG, lib_state, fetcher,
+        url_builder=url_builder, page_parser=page_parser, fmt="audiobook",
+    )
+    assert [b.overdrive_id for b in new_books] == ["a_new"]
+    assert anchor.overdrive_id == "a_new"
