@@ -14,7 +14,7 @@ _ALL_TAGS_RE = re.compile(r'<[^>]+>')
 KIND_ORDER = ["ebook", "audiobook"]
 KIND_META = {
     "ebook": {"noun": "eBook", "id": "ebooks", "nav": "eBooks"},
-    "audiobook": {"noun": "audiobook", "id": "audiobooks", "nav": "audiobooks"},
+    "audiobook": {"noun": "audiobook", "id": "audiobooks", "nav": "Audiobooks"},
 }
 
 
@@ -120,9 +120,11 @@ CSS = """
 body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; padding: 1.5rem; }
 h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
 h2 { font-size: 1.15rem; margin: 1.5rem 0 0.75rem; color: #333; scroll-margin-top: 3rem; }
-.nav { position: sticky; top: 0; background: #f5f5f5; padding: 0.5rem 0; margin-bottom: 0.5rem; font-size: 0.85rem; }
-.nav a { color: #1a56c4; text-decoration: none; margin-right: 1rem; }
-.nav a:hover { text-decoration: underline; }
+.nav, .subnav { font-size: 0.85rem; }
+.nav { position: sticky; top: 0; background: #f5f5f5; padding: 0.5rem 0; margin-bottom: 0.5rem; }
+.subnav { padding: 0.5rem 0; margin: 0.25rem 0 0.75rem; }
+.nav a, .subnav a { color: #1a56c4; text-decoration: none; margin-right: 1rem; }
+.nav a:hover, .subnav a:hover { text-decoration: underline; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; align-items: start; }
 .book-card {
   background: #fff;
@@ -199,30 +201,40 @@ def _card_html(book: EBook, library_base_url: str) -> str:
     )
 
 
-def _nav_html(groups: list[tuple[str, list[EBook]]]) -> str:
-    """Build the in-page navigation bar. Empty when there is only one section."""
+def _section_links(groups: list[tuple[str, list[EBook]]]) -> str:
+    """The 'eBooks' / 'Audiobooks' links shared by the top and bottom nav bars."""
+    return "".join(
+        f'<a href="#{KIND_META[kind]["id"]}">{KIND_META[kind]["nav"]}</a>'
+        for kind, _ in groups
+    )
+
+
+def _nav_html(groups: list[tuple[str, list[EBook]]], css_class: str = "nav") -> str:
+    """Build an in-page navigation bar. Empty when there is only one section."""
     if len(groups) < 2:
         return ""
-    links = ['<a href="#top">Go to top</a>']
-    for kind, _ in groups:
-        meta = KIND_META[kind]
-        links.append(f'<a href="#{meta["id"]}">Go to {meta["nav"]}</a>')
-    return f'<div class="nav">{"".join(links)}</div>'
+    return f'<div class="{css_class}">{_section_links(groups)}</div>'
 
 
 def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "") -> str:
     groups = group_sections(sections)
     heading = page_heading(sections, last_checked, library_name)
     heading_escaped = _escape(heading)
-    nav = _nav_html(groups)
+    top_nav = _nav_html(groups)
+    bottom_nav = _nav_html(groups, css_class="subnav")
+    has_ebooks = any(kind == "ebook" for kind, _ in groups)
 
     body_parts = []
     for kind, books in groups:
         meta = KIND_META[kind]
         section_heading = _escape(build_heading(len(books), "", "", noun=meta["noun"]))
         cards = "\n".join(_card_html(book, library_base_url) for book in books)
+        back = ""
+        if kind == "audiobook" and has_ebooks:
+            back = f'<div class="subnav"><a href="#{KIND_META["ebook"]["id"]}">Go to {KIND_META["ebook"]["nav"]}</a></div>\n'
         body_parts.append(
             f'<h2 id="{meta["id"]}">{section_heading}</h2>\n'
+            f'{back}'
             f'<div class="grid">\n{cards}\n</div>'
         )
     body_html = "\n".join(body_parts)
@@ -237,8 +249,9 @@ def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, libr
 </head>
 <body id="top">
 <h1>{heading_escaped}</h1>
-{nav}
+{top_nav}
 {body_html}
+{bottom_nav}
 </body>
 </html>"""
 
@@ -295,25 +308,35 @@ def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str
     heading = page_heading(sections, last_checked, library_name)
     heading_escaped = _escape(heading)
 
-    nav_html = ""
-    if len(groups) >= 2:
-        links = ['<a href="#top" style="color:#1a56c4;text-decoration:none;margin-right:16px;">Go to top</a>']
-        for kind, _ in groups:
-            meta = KIND_META[kind]
-            links.append(
-                f'<a href="#{meta["id"]}" style="color:#1a56c4;text-decoration:none;margin-right:16px;">'
-                f'Go to {meta["nav"]}</a>'
-            )
-        nav_html = f'<div style="font-size:13px;margin-bottom:12px;">{"".join(links)}</div>'
+    link_style = "color:#1a56c4;text-decoration:none;margin-right:16px;"
+    nav_style = "font-size:13px;margin-bottom:12px;"
+
+    def email_nav() -> str:
+        if len(groups) < 2:
+            return ""
+        links = "".join(
+            f'<a href="#{KIND_META[kind]["id"]}" style="{link_style}">{KIND_META[kind]["nav"]}</a>'
+            for kind, _ in groups
+        )
+        return f'<div style="{nav_style}">{links}</div>'
+
+    nav_html = email_nav()
+    has_ebooks = any(kind == "ebook" for kind, _ in groups)
 
     body_parts = []
     for kind, books in groups:
         meta = KIND_META[kind]
         section_heading = _escape(build_heading(len(books), "", "", noun=meta["noun"]))
         cards = "\n".join(_email_card_html(book, library_base_url) for book in books)
+        back = ""
+        if kind == "audiobook" and has_ebooks:
+            back = (
+                f'<div style="{nav_style}"><a href="#{KIND_META["ebook"]["id"]}" '
+                f'style="{link_style}">Go to {KIND_META["ebook"]["nav"]}</a></div>\n'
+            )
         body_parts.append(
             f'<h2 id="{meta["id"]}" style="font-size:17px;margin:20px 0 10px;color:#333;">{section_heading}</h2>\n'
-            f"{cards}"
+            f"{back}{cards}"
         )
     body_html = "\n".join(body_parts)
 
@@ -328,6 +351,7 @@ def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str
 <div style="max-width:800px;">
 {nav_html}
 {body_html}
+{nav_html}
 </div>
 </body>
 </html>"""

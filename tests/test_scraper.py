@@ -14,6 +14,17 @@ def test_build_search_url_page3():
     assert url == "https://spl.overdrive.com/search/title?format=ebook-epub&sortBy=newlyadded&page=3"
 
 
+def test_build_search_url_audiobook_alias():
+    """The friendly 'audiobook' token maps to Overdrive's real format value."""
+    url = build_search_url("https://spl.overdrive.com", "audiobook", 1)
+    assert "format=audiobook-overdrive" in url
+
+
+def test_build_search_url_specific_format_passes_through():
+    url = build_search_url("https://spl.overdrive.com", "audiobook-mp3", 1)
+    assert "format=audiobook-mp3" in url
+
+
 def test_build_search_url_language_default_no_filter():
     """Default (no language) preserves the original no-filter behavior."""
     url = build_search_url("https://spl.overdrive.com", "ebook-kindle", 1)
