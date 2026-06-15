@@ -87,7 +87,9 @@ You will be prompted for:
 - **Day of week** — e.g. `Monday` (default)
 - **Time** — 24-hour `HH:MM` format (default `09:00`)
 
-If email is configured, the scheduled check runs with `--email`. Otherwise it runs with `--no-open` and writes results to a temp file. Output from each run is appended to `~/.config/new_ebooks/check.log`.
+If email is configured, the scheduled check runs with `--email`. Otherwise it runs with `--no-open` and writes results to the results directory (see [Result files](#result-files)). Output from each run is appended to `~/.config/new_ebooks/check.log`.
+
+The `schedule`, `unschedule`, and `update-cache` commands are macOS-only and exit with a clear message on other platforms.
 
 ### `new-ebooks unschedule`
 
@@ -107,10 +109,20 @@ new-ebooks update-cache
 
 ### `new-ebooks status`
 
-Prints the current configuration and anchor state for all libraries, including email and schedule settings if configured — no network calls made.
+Prints the current configuration and anchor state for all libraries, including the result files directory, result and state-backup retention, and email and schedule settings if configured — no network calls made.
 
 ```
 new-ebooks status
+```
+
+### `new-ebooks config`
+
+Sets global (not per-library) options: how many state backups and result HTML files to keep. Run with no flags to be prompted interactively (current values shown as defaults; press Enter to keep), or pass flags to set values non-interactively. A value of `0` disables that kind of pruning. These are the only ways to change these settings short of editing `config.json` by hand.
+
+```
+new-ebooks config                          # interactive
+new-ebooks config --max-result-files 5
+new-ebooks config --max-state-backups 0    # disable state backups
 ```
 
 ### `new-ebooks edit`
@@ -153,7 +165,7 @@ The core algorithm is the same for both providers, and runs once per configured 
 4. Save the first new book as the next anchor for that format.
 5. Group each format's new books into sections by media type (eBooks, then audiobooks), render an HTML page with cover images, titles, authors, and Borrow/Place a Hold links, and open it in the browser (or send by email if `--email` is used).
 
-A safety valve stops pagination at 50 pages. If this triggers, the anchor was likely removed from the collection — run `new-ebooks reset`.
+A safety valve stops pagination at 50 pages. If the stored anchor is never found — because it was removed from the collection or pushed past the 50-page limit — the run is flagged: a warning banner appears at the top of the rendered results (and email), a notice is printed to the terminal, and the format's list may include already-seen titles rather than being trusted. Run `new-ebooks reset` to re-establish the anchor.
 
 ### Overdrive
 
@@ -175,21 +187,21 @@ CloudLibrary libraries do not store any credentials.
 
 | File | Purpose |
 |------|---------|
-| `~/.config/new_ebooks/config.json` | Library names, URLs, formats (one or more per library), language filters, providers, member libraries, backup settings |
+| `~/.config/new_ebooks/config.json` | Library names, URLs, formats (one or more per library), language filters, providers, member libraries, backup/retention settings |
 | `~/.config/new_ebooks/state.json` | Per-format anchor books, last-checked timestamps, cached session cookies |
-| `~/.config/new_ebooks/state.json.{timestamp}` | State backups (see below) |
+| `~/.config/new_ebooks/state.json.{timestamp}` | State backups (see [State backups](#state-backups)) |
+| `~/.config/new_ebooks/results/` | Rendered HTML result files (see [Result files](#result-files)) |
+
+Loading config ignores unrecognized keys, so a config file written by a newer version still loads on an older one.
+
+## Result files
+
+Each `check` that finds new titles writes its rendered HTML to `~/.config/new_ebooks/results/` with a timestamped, library-named filename (e.g. `new_ebooks_hamilton-east-public-library_20260615_090000.html`). Files are kept rather than overwritten so you can review recent runs.
+
+Once the number of result files exceeds the configured limit, the oldest are deleted. The default limit is 10. Change it with `new-ebooks config --max-result-files N` (or interactively with `new-ebooks config`); set it to `0` to disable pruning and keep every run. The value lives in `config.json` as `max_result_files` and can also be edited there by hand.
 
 ## State backups
 
 Before each state save, the current `state.json` is copied to `state.json.{mtime}` where `{mtime}` is the file's last-modified timestamp. Once the number of backups exceeds the configured limit, the oldest are deleted.
 
-The default limit is 10. To change it, set `max_state_backups` in `config.json`:
-
-```json
-{
-  "max_state_backups": 5,
-  "libraries": [...]
-}
-```
-
-Set `max_state_backups` to `0` to disable backups entirely.
+The default limit is 10. Change it with `new-ebooks config --max-state-backups N` (or interactively with `new-ebooks config`); set it to `0` to disable backups entirely. The value lives in `config.json` as `max_state_backups` and can also be edited there by hand.

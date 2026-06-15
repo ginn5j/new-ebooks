@@ -2,15 +2,20 @@ import json
 
 import pytest
 
+import argparse
+
 from new_ebooks.cli import (
     _fetch_with_auth,
+    _parse_retention,
     _provider_tools,
     _prune_result_files,
     _require_macos,
     _result_file_path,
+    _retention_label,
     _slugify,
+    cmd_config,
 )
-from new_ebooks.config import LibraryConfig
+from new_ebooks.config import LibraryConfig, load_config
 from new_ebooks.scraper import build_search_url, parse_page
 from new_ebooks.state import LibraryState
 
@@ -106,6 +111,68 @@ def test_prune_result_files_disabled_when_zero(tmp_path):
         (results / f"new_ebooks_lib_{i}.html").write_text("x")
     _prune_result_files(results, 0)
     assert len(list(results.glob("new_ebooks_*.html"))) == 3
+
+
+def test_parse_retention():
+    assert _parse_retention("", 10) == 10  # blank keeps current
+    assert _parse_retention("  ", 10) == 10
+    assert _parse_retention("3", 10) == 3
+    assert _parse_retention("0", 10) == 0
+    assert _parse_retention("-1", 10) == -1
+    assert _parse_retention("abc", 10) is None  # non-numeric rejected
+
+
+def test_retention_label():
+    assert _retention_label(5) == "5"
+    assert _retention_label(0) == "0 (disabled)"
+    assert _retention_label(-1) == "-1 (disabled)"
+
+
+def test_cmd_config_flags_set_values(tmp_path, capsys):
+    config_path = tmp_path / "config.json"
+    args = argparse.Namespace(
+        config=str(config_path), max_state_backups=7, max_result_files=3
+    )
+    assert cmd_config(args) == 0
+    saved = load_config(config_path)
+    assert saved.max_state_backups == 7
+    assert saved.max_result_files == 3
+
+
+def test_cmd_config_flags_partial_keeps_other(tmp_path):
+    config_path = tmp_path / "config.json"
+    cmd_config(argparse.Namespace(
+        config=str(config_path), max_state_backups=7, max_result_files=3
+    ))
+    # Only set one flag; the other must retain its saved value.
+    cmd_config(argparse.Namespace(
+        config=str(config_path), max_state_backups=None, max_result_files=1
+    ))
+    saved = load_config(config_path)
+    assert saved.max_state_backups == 7
+    assert saved.max_result_files == 1
+
+
+def test_cmd_config_interactive(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    answers = iter(["2", ""])  # set backups to 2, keep result files default
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    args = argparse.Namespace(
+        config=str(config_path), max_state_backups=None, max_result_files=None
+    )
+    assert cmd_config(args) == 0
+    saved = load_config(config_path)
+    assert saved.max_state_backups == 2
+    assert saved.max_result_files == 10  # default kept
+
+
+def test_cmd_config_interactive_rejects_non_numeric(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr("builtins.input", lambda _: "nope")
+    args = argparse.Namespace(
+        config=str(config_path), max_state_backups=None, max_result_files=None
+    )
+    assert cmd_config(args) == 1
 
 
 def test_require_macos(monkeypatch):

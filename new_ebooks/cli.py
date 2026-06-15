@@ -615,6 +615,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"  Directory: {results_dir}")
     print(f"  Keeping:   {retention} ({kept} on disk)")
 
+    backups = "all (backups off)" if config.max_state_backups <= 0 else str(config.max_state_backups)
+    print(f"\nState backups")
+    print(f"  Keeping:   {backups}")
+    print(f"  Change with: new-ebooks config")
+
     if config.email:
         e = config.email
         print(f"\nEmail")
@@ -713,6 +718,60 @@ def cmd_edit(args: argparse.Namespace) -> int:
 
     save_config(config, config_path)
     print(f"Saved. Run 'new-ebooks reset --library \"{lib.name}\"' to re-establish the anchor.")
+    return 0
+
+
+def _parse_retention(raw: str, current: int) -> Optional[int]:
+    """Parse a retention prompt: blank keeps the current value, else an int.
+
+    Returns ``None`` if the input is non-empty but not a whole number.
+    """
+    raw = raw.strip()
+    if not raw:
+        return current
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _retention_label(value: int) -> str:
+    return f"{value} (disabled)" if value <= 0 else str(value)
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    config_path = Path(args.config)
+    config = load_config(config_path)
+
+    # Non-interactive when either flag is given: apply only the flags provided.
+    if args.max_state_backups is not None or args.max_result_files is not None:
+        if args.max_state_backups is not None:
+            config.max_state_backups = args.max_state_backups
+        if args.max_result_files is not None:
+            config.max_result_files = args.max_result_files
+    else:
+        print("Press Enter to keep the current value. Use 0 to disable.")
+        sb = _parse_retention(
+            input(f"Max state backups to keep [{config.max_state_backups}]: "),
+            config.max_state_backups,
+        )
+        if sb is None:
+            print("Must be a whole number.", file=sys.stderr)
+            return 1
+        rf = _parse_retention(
+            input(f"Max result files to keep [{config.max_result_files}]: "),
+            config.max_result_files,
+        )
+        if rf is None:
+            print("Must be a whole number.", file=sys.stderr)
+            return 1
+        config.max_state_backups = sb
+        config.max_result_files = rf
+
+    save_config(config, config_path)
+    print("Saved.")
+    print(f"  Max state backups: {_retention_label(config.max_state_backups)}")
+    print(f"  Max result files:  {_retention_label(config.max_result_files)}")
     return 0
 
 
@@ -941,6 +1000,21 @@ def main() -> None:
     # status
     subparsers.add_parser("status", help="Show config and state")
 
+    # config
+    config_p = subparsers.add_parser("config", help="Set global options (file retention)")
+    config_p.add_argument(
+        "--max-state-backups",
+        type=int,
+        metavar="N",
+        help="State backups to keep (0 disables backups)",
+    )
+    config_p.add_argument(
+        "--max-result-files",
+        type=int,
+        metavar="N",
+        help="Result HTML files to keep (0 disables pruning)",
+    )
+
     # email
     subparsers.add_parser("email", help="Configure SMTP email settings")
 
@@ -961,6 +1035,8 @@ def main() -> None:
         sys.exit(cmd_reset(args))
     elif args.command == "status":
         sys.exit(cmd_status(args))
+    elif args.command == "config":
+        sys.exit(cmd_config(args))
     elif args.command == "email":
         sys.exit(cmd_email_config(args))
     elif args.command == "schedule":
