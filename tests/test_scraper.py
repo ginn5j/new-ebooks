@@ -14,15 +14,17 @@ def test_build_search_url_page3():
     assert url == "https://spl.overdrive.com/search/title?format=ebook-epub&sortBy=newlyadded&page=3"
 
 
-def test_build_search_url_audiobook_alias():
-    """The friendly 'audiobook' token maps to Overdrive's real format value."""
+def test_build_search_url_audiobook_uses_media_type():
+    """'audiobook' is a media type, so it uses mediaType= not format=."""
     url = build_search_url("https://spl.overdrive.com", "audiobook", 1)
-    assert "format=audiobook-overdrive" in url
+    assert "mediaType=audiobook" in url
+    assert "format=" not in url
 
 
 def test_build_search_url_specific_format_passes_through():
     url = build_search_url("https://spl.overdrive.com", "audiobook-mp3", 1)
     assert "format=audiobook-mp3" in url
+    assert "mediaType=" not in url
 
 
 def test_build_search_url_language_default_no_filter():
