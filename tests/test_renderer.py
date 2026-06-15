@@ -238,10 +238,17 @@ def test_render_html_groups_with_nav():
     assert 'id="audiobooks"' in html
     assert "1 new eBook" in html
     assert "1 new audiobook" in html
-    # Navigation links between sections
-    assert 'href="#top"' in html
-    assert 'href="#ebooks"' in html
-    assert 'href="#audiobooks"' in html
+    # Top/bottom nav links by section, no "Go to top"
+    assert "Go to top" not in html
+    assert 'href="#top"' not in html
+    assert '>eBooks</a>' in html
+    assert '>Audiobooks</a>' in html
+    # Repeated at the end via the static subnav, plus a back link in the
+    # audiobook section.
+    assert 'class="subnav"' in html
+    assert 'href="#ebooks">Go to eBooks</a>' in html
+    # Both top and bottom nav point at each section.
+    assert html.count('href="#audiobooks"') >= 2
 
 
 def test_render_html_single_section_no_nav():
