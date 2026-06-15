@@ -34,6 +34,36 @@ def test_render_html_no_books():
     assert "No new eBooks" in html
 
 
+def test_render_html_warning_banner():
+    books = [make_book("1", "One Book", "Solo Author")]
+    warnings = ["The previously tracked ebook-kindle title was not found."]
+    html = render_html(books, "2026-03-01", warnings=warnings)
+    assert 'class="warning"' in html
+    assert "was not found" in html
+    # Banner appears before the book grid.
+    assert html.index('class="warning"') < html.index('class="grid"')
+
+
+def test_render_html_no_warning_banner_by_default():
+    books = [make_book("1", "One Book", "Solo Author")]
+    html = render_html(books, "2026-03-01")
+    assert 'class="warning"' not in html
+
+
+def test_render_html_warning_escaped():
+    books = [make_book("1", "One Book", "Solo Author")]
+    html = render_html(books, "2026-03-01", warnings=["<script>alert('x')</script>"])
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_render_email_warning_banner():
+    books = [make_book("1", "One Book", "Solo Author")]
+    html = render_email_html(books, "2026-03-01", warnings=["Anchor missing"])
+    assert "Anchor missing" in html
+    assert html.index("Anchor missing") < html.index("One Book")
+
+
 def test_render_html_xss_prevention():
     books = [make_book("1", "<script>alert('xss')</script>", "Author & Co")]
     html = render_html(books, "2026-03-01")

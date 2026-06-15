@@ -360,13 +360,14 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         print(f"Checking {lib_config.name}...")
         sections: list[tuple[str, list[EBook]]] = []
+        warnings: list[str] = []
         failed = False
         for fmt in lib_config.formats:
             had_anchor = fmt in lib_state.anchors
             anchor = lib_state.anchors.get(fmt)
             anchor_id = anchor.overdrive_id if anchor else None
             try:
-                new_books, new_anchor = check_for_new_ebooks(
+                new_books, new_anchor, anchor_found = check_for_new_ebooks(
                     lib_config, lib_state, fetcher,
                     url_builder=_url_builder,
                     page_parser=_page_parser,
@@ -393,6 +394,20 @@ def cmd_check(args: argparse.Namespace) -> int:
 
             # Tracked format — record results and advance the anchor.
             sections.append((fmt, new_books))
+            if not anchor_found:
+                # The stored anchor was never seen, so new_books may be a flood
+                # of already-seen titles. Warn instead of trusting the list.
+                warnings.append(
+                    f"The previously tracked {fmt} title was not found in the "
+                    f"current results — it may have been removed from the "
+                    f"collection. The {fmt} titles below may include ones you've "
+                    f"already seen."
+                )
+                print(
+                    f"  {fmt}: WARNING — tracked title not found; "
+                    f"results may include already-seen titles.",
+                    file=sys.stderr,
+                )
             if new_books:
                 print(f"  {fmt}: {len(new_books)} new.")
                 if new_anchor:
@@ -419,7 +434,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         if total_new == 0:
             print(f"No new titles since {format_date(last_checked)}.")
         else:
-            html = render_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url)
+            html = render_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url, warnings=warnings)
             fd, tmp_name = tempfile.mkstemp(suffix=".html", prefix="new_ebooks_")
             os.close(fd)
             tmp = Path(tmp_name)
@@ -445,7 +460,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                 continue
             try:
                 subject = page_heading(sections, last_checked or "", lib_config.name)
-                email_html = render_email_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url)
+                email_html = render_email_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url, warnings=warnings)
                 send_email(subject, email_html, email_cfg, password)
                 print(f"Email sent to {email_cfg.smtp_to}.")
             except Exception as e:
