@@ -34,7 +34,7 @@ def test_first_run_no_state():
         from pathlib import Path
         return (Path(__file__).parent / "fixtures" / "sample_page.html").read_text()
 
-    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, None, fetcher)
+    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, None, fetcher)
     assert new_books == []
     assert anchor is not None
     # Fixture titleCollection order is: 87654321, 11111111, 12345678
@@ -51,7 +51,7 @@ def test_no_new_books():
         from pathlib import Path
         return (Path(__file__).parent / "fixtures" / "sample_page.html").read_text()
 
-    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     assert new_books == []
     assert anchor is None
 
@@ -65,7 +65,7 @@ def test_some_new_books():
         from pathlib import Path
         return (Path(__file__).parent / "fixtures" / "sample_page.html").read_text()
 
-    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     assert len(new_books) == 1
     assert new_books[0].overdrive_id == "87654321"
     assert anchor.overdrive_id == "87654321"
@@ -90,7 +90,7 @@ def test_multi_page(monkeypatch):
         anchors={"ebook-kindle": EBookState("anchor_id", "r0", "The Anchor", "Old Author")}
     )
 
-    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     assert len(new_books) == 3  # 2 from page1 + 1 from page2 (Book C before anchor)
     assert new_books[0].overdrive_id == "101"
     assert anchor.overdrive_id == "101"
@@ -124,7 +124,7 @@ def test_safety_valve(monkeypatch):
         anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone Book", "Author")}
     )
 
-    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     # 3 pages of the same 2 books — each book counted once
     assert len(new_books) == 2
     assert [b.overdrive_id for b in new_books] == ["new1", "new2"]
@@ -150,7 +150,7 @@ def test_page_shift_duplicates_removed(monkeypatch):
         anchors={"ebook-kindle": EBookState("anchor_id", "r0", "The Anchor", "Old Author")}
     )
 
-    new_books, anchor = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     assert [b.overdrive_id for b in new_books] == ["101", "102", "103"]
     assert anchor.overdrive_id == "101"
 
@@ -218,7 +218,7 @@ def test_custom_page_parser_is_called():
         return page_json
 
     lib_state = LibraryState(anchors={"ebook": EBookState("anchor", "", "Anchor Book", "Auth")})
-    new_books, anchor = check_for_new_ebooks(
+    new_books, anchor, _ = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=page_parser,
     )
@@ -234,7 +234,7 @@ def test_cloudlibrary_first_run():
     def fetcher(url: str) -> str:
         return page_json
 
-    new_books, anchor = check_for_new_ebooks(
+    new_books, anchor, _ = check_for_new_ebooks(
         CL_CONFIG, None, fetcher,
         url_builder=_cl_url_builder, page_parser=_cl_page_parser,
     )
@@ -255,7 +255,7 @@ def test_cloudlibrary_new_books_found():
         return page_json
 
     lib_state = LibraryState(anchors={"ebook": EBookState("anchor", "", "Old Anchor", "Auth")})
-    new_books, anchor = check_for_new_ebooks(
+    new_books, anchor, _ = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=_cl_page_parser,
     )
@@ -293,6 +293,68 @@ def test_fmt_defaults_to_primary_format():
     assert seen[0] == "ebook-kindle"
 
 
+def test_anchor_found_flag_true_when_anchor_present():
+    """When the anchor is in the results, anchor_found is True."""
+    def fetcher(url: str) -> str:
+        from pathlib import Path
+        return (Path(__file__).parent / "fixtures" / "sample_page.html").read_text()
+
+    lib_state = LibraryState(
+        anchors={"ebook-kindle": EBookState("11111111", "r3", "Old Book", "Carl Legacy")}
+    )
+    _, _, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    assert anchor_found is True
+
+
+def test_anchor_found_flag_true_on_first_run():
+    """A first run has no anchor to find; anchor_found is reported True."""
+    def fetcher(url: str) -> str:
+        from pathlib import Path
+        return (Path(__file__).parent / "fixtures" / "sample_page.html").read_text()
+
+    _, _, anchor_found = check_for_new_ebooks(LIB_CONFIG, None, fetcher)
+    assert anchor_found is True
+
+
+def test_anchor_found_flag_false_when_pages_run_out(monkeypatch):
+    """If the listing ends before the anchor appears, anchor_found is False."""
+    monkeypatch.setattr("new_ebooks.checker.MAX_PAGES", 5)
+
+    page1_html = _make_html({"new1": "New Book 1", "new2": "New Book 2"})
+    empty_html = _make_html({})
+
+    pages = [page1_html, empty_html]
+    call_count = [0]
+
+    def fetcher(url: str) -> str:
+        html = pages[min(call_count[0], len(pages) - 1)]
+        call_count[0] += 1
+        return html
+
+    lib_state = LibraryState(
+        anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone", "Author")}
+    )
+    new_books, anchor, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    assert anchor_found is False
+    assert [b.overdrive_id for b in new_books] == ["new1", "new2"]
+
+
+def test_anchor_found_flag_false_at_safety_valve(monkeypatch):
+    """Hitting MAX_PAGES without the anchor reports anchor_found False."""
+    monkeypatch.setattr("new_ebooks.checker.MAX_PAGES", 3)
+
+    page_html = _make_html({"new1": "New Book 1", "new2": "New Book 2"})
+
+    def fetcher(url: str) -> str:
+        return page_html
+
+    lib_state = LibraryState(
+        anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone", "Author")}
+    )
+    _, _, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    assert anchor_found is False
+
+
 def test_anchor_resolved_per_format():
     """Each format uses its own anchor from lib_state.anchors."""
     lib_state = LibraryState(anchors={
@@ -311,7 +373,7 @@ def test_anchor_resolved_per_format():
     def fetcher(url: str) -> str:
         return url
 
-    new_books, anchor = check_for_new_ebooks(
+    new_books, anchor, _ = check_for_new_ebooks(
         MULTI_CONFIG, lib_state, fetcher,
         url_builder=url_builder, page_parser=page_parser, fmt="audiobook",
     )

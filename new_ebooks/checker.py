@@ -23,11 +23,19 @@ def check_for_new_ebooks(
     page_parser: Optional[Callable] = None,
     fmt: Optional[str] = None,
     anchor_id: Optional[str] = None,
-) -> tuple[list[EBook], Optional[EBook]]:
+) -> tuple[list[EBook], Optional[EBook], bool]:
     """
-    Check a single format and return (new_books, new_anchor).
+    Check a single format and return (new_books, new_anchor, anchor_found).
     new_anchor is the book to save as this format's anchor for the next run.
-    If this is the first run (no anchor for the format), returns ([], first_book).
+    If this is the first run (no anchor for the format), returns
+    ([], first_book, True).
+
+    ``anchor_found`` is False when the stored anchor was never seen in the
+    results — either the listing ran out of pages or MAX_PAGES was hit before
+    reaching it. In that case ``new_books`` may be a flood of titles the user
+    has already seen (the anchor was likely removed from the collection), so
+    callers should warn rather than trust the list. It is always True on a
+    first run, where there is no anchor to find.
 
     ``fmt`` defaults to the library's primary (first) format; ``anchor_id``
     defaults to that format's stored anchor.
@@ -58,18 +66,20 @@ def check_for_new_ebooks(
                 seen_ids.add(book.overdrive_id)
                 new_books.append(book)
 
+    anchor_found = False
     for page_num in range(1, MAX_PAGES + 1):
         url = url_builder(config.library_base_url, fmt, page_num)
         html = fetcher(url)
         books = page_parser(html)
 
         if not books:
+            # Ran out of pages without reaching the anchor.
             break
 
         if anchor_id is None:
             # First run: just record the first book as anchor, collect nothing
             new_anchor = books[0] if books else None
-            return [], new_anchor
+            return [], new_anchor, True
 
         idx = find_anchor(books, anchor_id)
         if idx is None:
@@ -78,11 +88,12 @@ def check_for_new_ebooks(
         else:
             # Anchor found — take everything before it
             add_new(books[:idx])
+            anchor_found = True
             break
 
     else:
         # Safety valve: anchor not found after MAX_PAGES
-        return new_books, new_books[0] if new_books else None
+        return new_books, new_books[0] if new_books else None, False
 
     new_anchor = new_books[0] if new_books else None
-    return new_books, new_anchor
+    return new_books, new_anchor, anchor_found

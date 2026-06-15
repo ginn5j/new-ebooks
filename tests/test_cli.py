@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from new_ebooks.cli import _fetch_with_auth, _provider_tools
+from new_ebooks.cli import (
+    _fetch_with_auth,
+    _provider_tools,
+    _prune_result_files,
+    _require_macos,
+    _result_file_path,
+    _slugify,
+)
 from new_ebooks.config import LibraryConfig
 from new_ebooks.scraper import build_search_url, parse_page
 from new_ebooks.state import LibraryState
@@ -57,6 +64,55 @@ def test_fetcher_raises_when_reauth_does_not_restore_access():
     fetcher = _fetch_with_auth(session, CL_CONFIG, LibraryState())
     with pytest.raises(RuntimeError, match="re-authentication did not restore access"):
         fetcher("https://example.com/search")
+
+
+def test_slugify():
+    assert _slugify("Seattle Public Library") == "seattle-public-library"
+    assert _slugify("A/B: C!") == "a-b-c"
+    assert _slugify("") == "library"
+
+
+def test_result_file_path_is_unique(tmp_path):
+    results = tmp_path / "results"
+    p1 = _result_file_path(results, "Lib")
+    p1.write_text("x")
+    p2 = _result_file_path(results, "Lib")
+    assert p1 != p2
+    assert p1.parent == results and results.is_dir()
+    assert p1.name.startswith("new_ebooks_lib_") and p1.suffix == ".html"
+
+
+def test_prune_result_files_keeps_newest(tmp_path):
+    results = tmp_path / "results"
+    results.mkdir()
+    made = []
+    for i in range(5):
+        f = results / f"new_ebooks_lib_2026010{i}.html"
+        f.write_text("x")
+        # Stagger mtimes so ordering is deterministic.
+        import os
+        os.utime(f, (1000 + i, 1000 + i))
+        made.append(f)
+
+    _prune_result_files(results, 2)
+    remaining = sorted(p.name for p in results.glob("new_ebooks_*.html"))
+    assert remaining == [made[3].name, made[4].name]
+
+
+def test_prune_result_files_disabled_when_zero(tmp_path):
+    results = tmp_path / "results"
+    results.mkdir()
+    for i in range(3):
+        (results / f"new_ebooks_lib_{i}.html").write_text("x")
+    _prune_result_files(results, 0)
+    assert len(list(results.glob("new_ebooks_*.html"))) == 3
+
+
+def test_require_macos(monkeypatch):
+    monkeypatch.setattr("new_ebooks.cli.sys.platform", "darwin")
+    assert _require_macos() is True
+    monkeypatch.setattr("new_ebooks.cli.sys.platform", "linux")
+    assert _require_macos() is False
 
 
 def test_provider_tools_overdrive():

@@ -1,13 +1,13 @@
 from __future__ import annotations
 import argparse
-import os
+import re
 import sys
 import time
-import tempfile
+import traceback
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
@@ -73,7 +73,7 @@ def _fetch_with_auth(
     lib_config: LibraryConfig,
     lib_state: LibraryState,
     delay: float = 0.0,
-) -> callable:
+) -> Callable[[str], str]:
     is_cloudlibrary = lib_config.provider == "cloudlibrary"
 
     extra_headers = {"Accept": "application/json"} if is_cloudlibrary else {}
@@ -125,7 +125,7 @@ def _fetch_with_auth(
     return fetcher
 
 
-def _provider_tools(lib_config: LibraryConfig) -> tuple[callable, callable]:
+def _provider_tools(lib_config: LibraryConfig) -> tuple[Callable, Callable]:
     """Return (url_builder, page_parser) for the library's provider.
 
     The configured language filter is bound into the url_builder so the
@@ -191,6 +191,41 @@ def _prompt_formats(provider: str, current: Optional[list[str]] = None) -> list[
         f"Formats (comma-separated, e.g. {_format_hint(provider)}) [{default}]: "
     ).strip() or default
     return _parse_formats(raw)
+
+
+def _slugify(name: str) -> str:
+    """Turn a library name into a filename-safe slug."""
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-").lower()
+    return slug or "library"
+
+
+def _result_file_path(results_dir: Path, library_name: str) -> Path:
+    """A timestamped, library-named HTML path for this run's results.
+
+    Files are kept (not overwritten) so recent runs can be reviewed; a counter
+    suffix avoids collisions when two libraries finish in the same second.
+    """
+    results_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = f"new_ebooks_{_slugify(library_name)}_{ts}"
+    path = results_dir / f"{stem}.html"
+    counter = 1
+    while path.exists():
+        path = results_dir / f"{stem}_{counter}.html"
+        counter += 1
+    return path
+
+
+def _prune_result_files(results_dir: Path, max_files: int) -> None:
+    """Keep only the newest ``max_files`` result HTML files; 0 disables pruning."""
+    if max_files <= 0:
+        return
+    files = sorted(
+        results_dir.glob("new_ebooks_*.html"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    for old in files[:-max_files]:
+        old.unlink(missing_ok=True)
 
 
 def _ebook_to_state(book: EBook) -> EBookState:
@@ -278,7 +313,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Authentication failed: {e}", file=sys.stderr)
         if args.verbose:
-            import traceback
             traceback.print_exc()
         return 1
 
@@ -360,13 +394,14 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         print(f"Checking {lib_config.name}...")
         sections: list[tuple[str, list[EBook]]] = []
+        warnings: list[str] = []
         failed = False
         for fmt in lib_config.formats:
             had_anchor = fmt in lib_state.anchors
             anchor = lib_state.anchors.get(fmt)
             anchor_id = anchor.overdrive_id if anchor else None
             try:
-                new_books, new_anchor = check_for_new_ebooks(
+                new_books, new_anchor, anchor_found = check_for_new_ebooks(
                     lib_config, lib_state, fetcher,
                     url_builder=_url_builder,
                     page_parser=_page_parser,
@@ -376,7 +411,6 @@ def cmd_check(args: argparse.Namespace) -> int:
             except Exception as e:
                 print(f"Error checking {lib_config.name} ({fmt}): {e}", file=sys.stderr)
                 if args.verbose:
-                    import traceback
                     traceback.print_exc()
                 exit_code = 1
                 failed = True
@@ -393,6 +427,20 @@ def cmd_check(args: argparse.Namespace) -> int:
 
             # Tracked format — record results and advance the anchor.
             sections.append((fmt, new_books))
+            if not anchor_found:
+                # The stored anchor was never seen, so new_books may be a flood
+                # of already-seen titles. Warn instead of trusting the list.
+                warnings.append(
+                    f"The previously tracked {fmt} title was not found in the "
+                    f"current results — it may have been removed from the "
+                    f"collection. The {fmt} titles below may include ones you've "
+                    f"already seen."
+                )
+                print(
+                    f"  {fmt}: WARNING — tracked title not found; "
+                    f"results may include already-seen titles.",
+                    file=sys.stderr,
+                )
             if new_books:
                 print(f"  {fmt}: {len(new_books)} new.")
                 if new_anchor:
@@ -419,18 +467,18 @@ def cmd_check(args: argparse.Namespace) -> int:
         if total_new == 0:
             print(f"No new titles since {format_date(last_checked)}.")
         else:
-            html = render_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url)
-            fd, tmp_name = tempfile.mkstemp(suffix=".html", prefix="new_ebooks_")
-            os.close(fd)
-            tmp = Path(tmp_name)
+            html = render_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url, warnings=warnings)
+            results_dir = config_path.parent / "results"
+            out = _result_file_path(results_dir, lib_config.name)
 
             auto_open = args.open if use_email else not args.no_open
 
-            write_and_open(html, tmp, auto_open=auto_open)
+            write_and_open(html, out, auto_open=auto_open)
+            _prune_result_files(results_dir, config.max_result_files)
             if auto_open:
-                print(f"Opened results in browser: {tmp}")
+                print(f"Opened results in browser: {out}")
             else:
-                print(f"Results written to: {tmp}")
+                print(f"Results written to: {out}")
 
         if use_email:
             email_cfg = config.email
@@ -445,13 +493,12 @@ def cmd_check(args: argparse.Namespace) -> int:
                 continue
             try:
                 subject = page_heading(sections, last_checked or "", lib_config.name)
-                email_html = render_email_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url)
+                email_html = render_email_html(sections, last_checked or "", lib_config.name, lib_config.library_base_url, warnings=warnings)
                 send_email(subject, email_html, email_cfg, password)
                 print(f"Email sent to {email_cfg.smtp_to}.")
             except Exception as e:
                 print(f"Failed to send email: {e}")
                 if args.verbose:
-                    import traceback
                     traceback.print_exc()
                 exit_code = 1
 
@@ -560,6 +607,13 @@ def cmd_status(args: argparse.Namespace) -> int:
                 print("  (no state — run 'new-ebooks init')")
         else:
             print("  (no state — run 'new-ebooks init')")
+
+    results_dir = config_path.parent / "results"
+    kept = len(list(results_dir.glob("new_ebooks_*.html"))) if results_dir.exists() else 0
+    retention = "all (pruning off)" if config.max_result_files <= 0 else str(config.max_result_files)
+    print(f"\nResult files")
+    print(f"  Directory: {results_dir}")
+    print(f"  Keeping:   {retention} ({kept} on disk)")
 
     if config.email:
         e = config.email
@@ -723,7 +777,20 @@ def cmd_email_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _require_macos() -> bool:
+    """Scheduling is implemented with launchd; guard non-macOS platforms."""
+    if sys.platform != "darwin":
+        print(
+            "Scheduling is only supported on macOS (it relies on launchd).",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def cmd_schedule(args: argparse.Namespace) -> int:
+    if not _require_macos():
+        return 1
     from new_ebooks.scheduler import (
         write_plist, load_plist, unload_plist,
         get_schedule_info, is_loaded, WEEKDAY_NAMES, PLIST_PATH,
@@ -792,7 +859,6 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Failed to register schedule with launchd: {e}", file=sys.stderr)
         if args.verbose:
-            import traceback
             traceback.print_exc()
         return 1
 
@@ -804,6 +870,8 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 
 
 def cmd_update_cache(args: argparse.Namespace) -> int:
+    if not _require_macos():
+        return 1
     from new_ebooks.scheduler import write_launcher, PKG_CACHE_DIR, LAUNCHER_PATH, get_schedule_info
 
     if not get_schedule_info():
@@ -817,13 +885,14 @@ def cmd_update_cache(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Failed to update cache: {e}", file=sys.stderr)
         if args.verbose:
-            import traceback
             traceback.print_exc()
         return 1
     return 0
 
 
 def cmd_unschedule(args: argparse.Namespace) -> int:
+    if not _require_macos():
+        return 1
     from new_ebooks.scheduler import unload_plist, is_loaded, PLIST_PATH, get_schedule_info
 
     if not get_schedule_info():

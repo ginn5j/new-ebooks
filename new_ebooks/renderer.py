@@ -125,6 +125,17 @@ h2 { font-size: 1.15rem; margin: 1.5rem 0 0.75rem; color: #333; scroll-margin-to
 .subnav { padding: 0.5rem 0; margin: 0.25rem 0 0.75rem; }
 .nav a, .subnav a { color: #1a56c4; text-decoration: none; margin-right: 1rem; }
 .nav a:hover, .subnav a:hover { text-decoration: underline; }
+.warning {
+  background: #fff8e1;
+  border: 1px solid #f0d000;
+  border-left: 4px solid #e0a800;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  color: #5c4500;
+  font-size: 0.9rem;
+}
+.warning ul { margin: 0.35rem 0 0 1.25rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; align-items: start; }
 .book-card {
   background: #fff;
@@ -216,10 +227,36 @@ def _nav_html(groups: list[tuple[str, list[EBook]]], css_class: str = "nav") -> 
     return f'<div class="{css_class}">{_section_links(groups)}</div>'
 
 
-def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "") -> str:
+def _warning_html(warnings: "list[str] | None") -> str:
+    """A styled banner listing any warnings; empty string when there are none."""
+    if not warnings:
+        return ""
+    items = "".join(f"<li>{_escape(w)}</li>" for w in warnings)
+    return f'<div class="warning"><strong>Warning</strong><ul>{items}</ul></div>'
+
+
+def _email_warning_html(warnings: "list[str] | None") -> str:
+    """Inline-styled warning banner for email (no external stylesheet)."""
+    if not warnings:
+        return ""
+    items = "".join(
+        f'<li style="margin-bottom:4px;">{_escape(w)}</li>' for w in warnings
+    )
+    return (
+        '<div style="background:#fff8e1;border:1px solid #f0d000;'
+        'border-left:4px solid #e0a800;border-radius:6px;padding:12px 16px;'
+        'margin-bottom:16px;color:#5c4500;font-size:14px;">'
+        '<strong>Warning</strong>'
+        f'<ul style="margin:6px 0 0 20px;padding:0;">{items}</ul>'
+        '</div>'
+    )
+
+
+def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "", warnings: "list[str] | None" = None) -> str:
     groups = group_sections(sections)
     heading = page_heading(sections, last_checked, library_name)
     heading_escaped = _escape(heading)
+    warning_html = _warning_html(warnings)
     top_nav = _nav_html(groups)
     bottom_nav = _nav_html(groups, css_class="subnav")
     has_ebooks = any(kind == "ebook" for kind, _ in groups)
@@ -249,6 +286,7 @@ def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, libr
 </head>
 <body id="top">
 <h1>{heading_escaped}</h1>
+{warning_html}
 {top_nav}
 {body_html}
 {bottom_nav}
@@ -302,11 +340,12 @@ def _email_card_html(book: EBook, library_base_url: str) -> str:
     )
 
 
-def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "") -> str:
+def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "", warnings: "list[str] | None" = None) -> str:
     """Render an email-safe HTML version with all styles inlined (no <style> block)."""
     groups = group_sections(sections)
     heading = page_heading(sections, last_checked, library_name)
     heading_escaped = _escape(heading)
+    warning_html = _email_warning_html(warnings)
 
     link_style = "color:#1a56c4;text-decoration:none;margin-right:16px;"
     nav_style = "font-size:13px;margin-bottom:12px;"
@@ -349,6 +388,7 @@ def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str
 <body id="top" style="font-family:system-ui,sans-serif;background:#f5f5f5;color:#222;padding:24px;margin:0;">
 <h1 style="font-size:22px;margin:0 0 16px;color:#333;">{heading_escaped}</h1>
 <div style="max-width:800px;">
+{warning_html}
 {nav_html}
 {body_html}
 {nav_html}
