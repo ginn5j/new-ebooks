@@ -29,24 +29,25 @@ def _overdrive_language_value(language: Optional[str]) -> str:
     return ""
 
 
-# Overdrive's search expects a fully-qualified format identifier. Accept the
-# friendly "audiobook" token (matching CloudLibrary's "audio" shorthand and the
-# renderer's media kinds) and translate it to the value Overdrive recognizes; a
-# bare "audiobook" returns an empty result set. Specific identifiers the caller
-# already qualified (e.g. "audiobook-mp3") pass through untouched.
-_FORMAT_ALIASES = {"audiobook": "audiobook-overdrive"}
-
-
-def _overdrive_format_value(format: str) -> str:
-    return _FORMAT_ALIASES.get(format, format)
+# Overdrive's search distinguishes a specific *format* (format=ebook-epub-adobe)
+# from a broader *media type* (mediaType=audiobook). The friendly "audiobook"
+# token (matching CloudLibrary's "audio" shorthand and the renderer's media
+# kinds) is a media type, not a format: searching with format=audiobook returns
+# an empty result set. Map it to the mediaType query parameter instead. Specific
+# format identifiers the caller already qualified (e.g. "audiobook-mp3") stay on
+# the format parameter.
+_MEDIA_TYPES = {"audiobook"}
 
 
 def build_search_url(
     base_url: str, format: str, page: int = 1, language: Optional[str] = None
 ) -> str:
     base_url = base_url.rstrip("/")
-    format = _overdrive_format_value(format)
-    url = f"{base_url}/search/title?format={format}&sortBy=newlyadded&page={page}"
+    if format in _MEDIA_TYPES:
+        param = f"mediaType={format}"
+    else:
+        param = f"format={format}"
+    url = f"{base_url}/search/title?{param}&sortBy=newlyadded&page={page}"
     lang_value = _overdrive_language_value(language)
     if lang_value:
         url += f"&language={lang_value}"
