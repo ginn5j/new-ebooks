@@ -12,6 +12,9 @@ dependencies = [
     "keyring>=24",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
 [project.scripts]
 new-ebooks = "new_ebooks.cli:main"
 
