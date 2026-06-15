@@ -29,8 +29,8 @@ You will be prompted for:
 - **Provider** — `overdrive` (default) or `cloudlibrary`
 - **Formats** — one or more media formats to track, comma-separated. Each format is searched separately, keeps its own anchor, and gets its own section in the results.
   - Overdrive: e.g. `ebook-epub-adobe`, `ebook-kindle`, `audiobook`
-  - CloudLibrary: `digital` and/or `audio`
-  - Audiobook values: Overdrive uses `audiobook`; CloudLibrary uses `audio`. Combine an eBook format with an audiobook format to track both, e.g. `ebook-kindle, audiobook` (Overdrive) or `digital, audio` (CloudLibrary).
+  - CloudLibrary: `ebook` and/or `audiobook`
+  - Audiobook values: both providers use `audiobook`. Combine an eBook format with an audiobook format to track both, e.g. `ebook-kindle, audiobook` (Overdrive) or `ebook, audiobook` (CloudLibrary).
 - **Language filter** — `all` or `english`. Restricts the search to a single language. The default matches each provider's existing behavior: Overdrive defaults to `all` (no filter), CloudLibrary defaults to `english`.
 - **Request delay** — seconds to wait between page fetches (default: 1.0)
 
@@ -161,7 +161,7 @@ Book data is read from `window.OverDrive.titleCollection` embedded in the search
 
 ### CloudLibrary
 
-Book data is fetched as JSON via the Remix `_data` route endpoint (`?_data=routes%2Flibrary.%24name.search`), sorted by `-dateadded`. By default the search is filtered to English-language titles; set the library's language filter to `all` to include every language. Session initialisation requires only a GET to the library's base URL, which sets a `__config_PROD` cookie — no patron credentials are needed to browse the catalog.
+Book data is fetched as JSON via the Remix `_data` route endpoint (`?_data=routes%2Flibrary.%24name.search`), sorted by `-dateadded`. The standardized format tokens `ebook` and `audiobook` are mapped to CloudLibrary's `digital` and `audio` query values internally. By default the search is filtered to English-language titles; set the library's language filter to `all` to include every language. Session initialisation requires only a GET to the library's base URL, which sets a `__config_PROD` cookie — no patron credentials are needed to browse the catalog.
 
 ## Credentials
 

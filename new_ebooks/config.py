@@ -42,16 +42,29 @@ class Config:
     email: Optional[EmailConfig] = None
 
 
+# CloudLibrary format config values were once the raw query values
+# ("digital"/"audio"). They now use the friendly tokens shared with Overdrive
+# and the renderer ("ebook"/"audiobook"), mapped to query values in
+# cloudlibrary.build_search_url. Silently migrate old config entries on load.
+_CLOUDLIBRARY_FORMAT_MIGRATION = {"digital": "ebook", "audio": "audiobook"}
+
+
 def _library_from_dict(lib: dict) -> LibraryConfig:
-    """Build a LibraryConfig, migrating the legacy single ``format`` key.
+    """Build a LibraryConfig, migrating legacy format values.
 
     Older config files stored one ``format`` string per library; new ones
     store a ``formats`` list. A legacy entry becomes a single-element list.
+    For CloudLibrary libraries, legacy ``digital``/``audio`` format values are
+    migrated to the standardized ``ebook``/``audiobook`` tokens.
     """
     lib = dict(lib)
     legacy_format = lib.pop("format", None)
     if "formats" not in lib and legacy_format is not None:
         lib["formats"] = [legacy_format]
+    if lib.get("provider") == "cloudlibrary" and "formats" in lib:
+        lib["formats"] = [
+            _CLOUDLIBRARY_FORMAT_MIGRATION.get(fmt, fmt) for fmt in lib["formats"]
+        ]
     return LibraryConfig(**lib)
 
 

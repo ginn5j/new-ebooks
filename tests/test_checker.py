@@ -162,7 +162,7 @@ import json as _json
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",
     library_base_url="https://ebook.yourcloudlibrary.com/library/scpl",
-    formats=["digital"],
+    formats=["ebook"],
     request_delay_seconds=0.0,
     provider="cloudlibrary",
 )
@@ -198,7 +198,7 @@ def test_custom_url_builder_is_called():
     def fetcher(url: str) -> str:
         return _make_cl_json([("a1", "Book A", "Author A")])
 
-    lib_state = LibraryState(anchors={"digital": EBookState("a1", "", "Book A", "Author A")})
+    lib_state = LibraryState(anchors={"ebook": EBookState("a1", "", "Book A", "Author A")})
     check_for_new_ebooks(CL_CONFIG, lib_state, fetcher, url_builder=url_builder, page_parser=_cl_page_parser)
     assert calls[0] == (CL_CONFIG.library_base_url, CL_CONFIG.formats[0], 1)
 
@@ -217,7 +217,7 @@ def test_custom_page_parser_is_called():
     def fetcher(url: str) -> str:
         return page_json
 
-    lib_state = LibraryState(anchors={"digital": EBookState("anchor", "", "Anchor Book", "Auth")})
+    lib_state = LibraryState(anchors={"ebook": EBookState("anchor", "", "Anchor Book", "Auth")})
     new_books, anchor = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=page_parser,
@@ -254,7 +254,7 @@ def test_cloudlibrary_new_books_found():
     def fetcher(url: str) -> str:
         return page_json
 
-    lib_state = LibraryState(anchors={"digital": EBookState("anchor", "", "Old Anchor", "Auth")})
+    lib_state = LibraryState(anchors={"ebook": EBookState("anchor", "", "Old Anchor", "Auth")})
     new_books, anchor = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=_cl_page_parser,

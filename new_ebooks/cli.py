@@ -175,7 +175,7 @@ def _parse_formats(raw: str) -> list[str]:
 def _format_hint(provider: str) -> str:
     """A short example of valid formats for the provider, including audiobooks."""
     if provider == "cloudlibrary":
-        return "digital, audio"
+        return "ebook, audiobook"
     return "ebook-epub-adobe, ebook-kindle, audiobook"
 
 
@@ -184,7 +184,7 @@ def _prompt_formats(provider: str, current: Optional[list[str]] = None) -> list[
     if current:
         default = ", ".join(current)
     elif provider == "cloudlibrary":
-        default = "digital"
+        default = "ebook"
     else:
         default = "ebook-epub-adobe"
     raw = input(

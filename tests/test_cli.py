@@ -10,7 +10,7 @@ from new_ebooks.state import LibraryState
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",
     library_base_url="https://ebook.yourcloudlibrary.com/library/scpl",
-    formats=["digital"],
+    formats=["ebook"],
     provider="cloudlibrary",
 )
 
@@ -80,17 +80,18 @@ def test_provider_tools_overdrive_language_english():
 def test_provider_tools_cloudlibrary_language_all():
     config = LibraryConfig(
         name="L", library_base_url=CL_CONFIG.library_base_url,
-        formats=["digital"], provider="cloudlibrary", language="all",
+        formats=["ebook"], provider="cloudlibrary", language="all",
     )
     url_builder, _ = _provider_tools(config)
-    url = url_builder(CL_CONFIG.library_base_url, "digital", 1)
+    url = url_builder(CL_CONFIG.library_base_url, "ebook", 1)
     assert "language=" not in url
 
 
 def test_provider_tools_cloudlibrary():
     url_builder, page_parser = _provider_tools(CL_CONFIG)
-    url = url_builder(CL_CONFIG.library_base_url, "digital", 2)
+    url = url_builder(CL_CONFIG.library_base_url, "ebook", 2)
     assert "segment=2" in url
+    assert "format=digital" in url  # "ebook" config token maps to "digital"
     books = page_parser(json.dumps({"results": {"search": {"items": [
         {"id": "a1", "title": "T", "authors": ["A"]},
     ]}}}))

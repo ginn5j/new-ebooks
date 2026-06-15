@@ -65,8 +65,44 @@ def test_legacy_single_format_migrates_to_formats(tmp_path):
 def test_save_config_omits_legacy_format_key(tmp_path):
     path = tmp_path / "config.json"
     save_config(Config(libraries=[
-        LibraryConfig(name="L", library_base_url="https://x.com", formats=["digital"]),
+        LibraryConfig(name="L", library_base_url="https://x.com", formats=["ebook-kindle"]),
     ]), path)
     data = json.loads(path.read_text())
     assert "format" not in data["libraries"][0]
-    assert data["libraries"][0]["formats"] == ["digital"]
+    assert data["libraries"][0]["formats"] == ["ebook-kindle"]
+
+
+def test_cloudlibrary_legacy_format_values_migrate(tmp_path):
+    """CloudLibrary 'digital'/'audio' format values migrate to 'ebook'/'audiobook'."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"libraries": [
+        {"name": "C", "library_base_url": "https://ebook.yourcloudlibrary.com/library/scpl",
+         "provider": "cloudlibrary", "formats": ["digital", "audio"]},
+    ]}))
+
+    loaded = load_config(path)
+    assert loaded.libraries[0].formats == ["ebook", "audiobook"]
+
+
+def test_cloudlibrary_legacy_single_format_migrates(tmp_path):
+    """A legacy single 'format' value on a CloudLibrary entry is also migrated."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"libraries": [
+        {"name": "C", "library_base_url": "https://ebook.yourcloudlibrary.com/library/scpl",
+         "provider": "cloudlibrary", "format": "digital"},
+    ]}))
+
+    loaded = load_config(path)
+    assert loaded.libraries[0].formats == ["ebook"]
+
+
+def test_overdrive_format_values_not_migrated(tmp_path):
+    """Overdrive entries are untouched by the CloudLibrary format migration."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"libraries": [
+        {"name": "O", "library_base_url": "https://spl.overdrive.com",
+         "provider": "overdrive", "formats": ["ebook-kindle", "audiobook"]},
+    ]}))
+
+    loaded = load_config(path)
+    assert loaded.libraries[0].formats == ["ebook-kindle", "audiobook"]

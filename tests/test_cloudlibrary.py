@@ -6,43 +6,50 @@ from new_ebooks.cloudlibrary import build_search_url, parse_page, is_authenticat
 # --- build_search_url ---
 
 def test_build_search_url_basic():
-    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1)
+    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "ebook", 1)
     assert "_data=routes%2Flibrary.%24name.search" in url
     assert "sort=-dateadded" in url
-    assert "format=digital" in url
+    assert "format=digital" in url  # "ebook" config token maps to "digital"
     assert "language=eng" in url
     assert "segment=1" in url
 
 
-def test_build_search_url_page():
-    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl/", "audio", 3)
+def test_build_search_url_audiobook_format_value():
+    """The "audiobook" config token maps to CloudLibrary's "audio" query value."""
+    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl/", "audiobook", 3)
     assert "segment=3" in url
     assert "format=audio" in url
     assert not url.endswith("/search")  # trailing slash stripped from base
 
 
+def test_build_search_url_unknown_format_passes_through():
+    """A value not in the map is used verbatim as the query value."""
+    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1)
+    assert "format=digital" in url
+
+
 def test_build_search_url_no_trailing_slash():
-    url1 = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1)
-    url2 = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl/", "digital", 1)
+    url1 = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "ebook", 1)
+    url2 = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl/", "ebook", 1)
     assert url1 == url2
 
 
 def test_build_search_url_language_default_is_english():
     """Default (no language arg) preserves the original English-only behavior."""
-    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1)
+    url = build_search_url("https://ebook.yourcloudlibrary.com/library/scpl", "ebook", 1)
     assert "language=eng" in url
 
 
 def test_build_search_url_language_english():
     url = build_search_url(
-        "https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1, language="english"
+        "https://ebook.yourcloudlibrary.com/library/scpl", "ebook", 1, language="english"
     )
     assert "language=eng" in url
 
 
 def test_build_search_url_language_all_no_filter():
     url = build_search_url(
-        "https://ebook.yourcloudlibrary.com/library/scpl", "digital", 1, language="all"
+        "https://ebook.yourcloudlibrary.com/library/scpl", "ebook", 1, language="all"
     )
     assert "language=" not in url
 
