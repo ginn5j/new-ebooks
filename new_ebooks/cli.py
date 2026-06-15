@@ -3,10 +3,11 @@ import argparse
 import re
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
@@ -72,7 +73,7 @@ def _fetch_with_auth(
     lib_config: LibraryConfig,
     lib_state: LibraryState,
     delay: float = 0.0,
-) -> callable:
+) -> Callable[[str], str]:
     is_cloudlibrary = lib_config.provider == "cloudlibrary"
 
     extra_headers = {"Accept": "application/json"} if is_cloudlibrary else {}
@@ -124,7 +125,7 @@ def _fetch_with_auth(
     return fetcher
 
 
-def _provider_tools(lib_config: LibraryConfig) -> tuple[callable, callable]:
+def _provider_tools(lib_config: LibraryConfig) -> tuple[Callable, Callable]:
     """Return (url_builder, page_parser) for the library's provider.
 
     The configured language filter is bound into the url_builder so the
@@ -312,7 +313,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Authentication failed: {e}", file=sys.stderr)
         if args.verbose:
-            import traceback
             traceback.print_exc()
         return 1
 
@@ -411,7 +411,6 @@ def cmd_check(args: argparse.Namespace) -> int:
             except Exception as e:
                 print(f"Error checking {lib_config.name} ({fmt}): {e}", file=sys.stderr)
                 if args.verbose:
-                    import traceback
                     traceback.print_exc()
                 exit_code = 1
                 failed = True
@@ -500,7 +499,6 @@ def cmd_check(args: argparse.Namespace) -> int:
             except Exception as e:
                 print(f"Failed to send email: {e}")
                 if args.verbose:
-                    import traceback
                     traceback.print_exc()
                 exit_code = 1
 
@@ -779,7 +777,20 @@ def cmd_email_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _require_macos() -> bool:
+    """Scheduling is implemented with launchd; guard non-macOS platforms."""
+    if sys.platform != "darwin":
+        print(
+            "Scheduling is only supported on macOS (it relies on launchd).",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def cmd_schedule(args: argparse.Namespace) -> int:
+    if not _require_macos():
+        return 1
     from new_ebooks.scheduler import (
         write_plist, load_plist, unload_plist,
         get_schedule_info, is_loaded, WEEKDAY_NAMES, PLIST_PATH,
@@ -848,7 +859,6 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Failed to register schedule with launchd: {e}", file=sys.stderr)
         if args.verbose:
-            import traceback
             traceback.print_exc()
         return 1
 
@@ -860,6 +870,8 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 
 
 def cmd_update_cache(args: argparse.Namespace) -> int:
+    if not _require_macos():
+        return 1
     from new_ebooks.scheduler import write_launcher, PKG_CACHE_DIR, LAUNCHER_PATH, get_schedule_info
 
     if not get_schedule_info():
@@ -873,13 +885,14 @@ def cmd_update_cache(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Failed to update cache: {e}", file=sys.stderr)
         if args.verbose:
-            import traceback
             traceback.print_exc()
         return 1
     return 0
 
 
 def cmd_unschedule(args: argparse.Namespace) -> int:
+    if not _require_macos():
+        return 1
     from new_ebooks.scheduler import unload_plist, is_loaded, PLIST_PATH, get_schedule_info
 
     if not get_schedule_info():

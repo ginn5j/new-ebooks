@@ -39,6 +39,28 @@ def test_legacy_config_without_max_result_files_loads(tmp_path):
     assert load_config(path).max_result_files == 10
 
 
+def test_unknown_library_keys_are_ignored(tmp_path):
+    """A config with a field a newer version added still loads (no TypeError)."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"libraries": [
+        {"name": "L", "library_base_url": "https://spl.overdrive.com",
+         "provider": "overdrive", "future_setting": "value"},
+    ]}))
+    loaded = load_config(path)
+    assert loaded.libraries[0].name == "L"
+    assert not hasattr(loaded.libraries[0], "future_setting")
+
+
+def test_unknown_email_keys_are_ignored(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({
+        "libraries": [],
+        "email": {"smtp_host": "smtp.example.com", "smtp_to": "a@b.c", "future": 1},
+    }))
+    loaded = load_config(path)
+    assert loaded.email.smtp_host == "smtp.example.com"
+
+
 def test_legacy_config_without_language_loads(tmp_path):
     """Configs written before the language field load with language=None."""
     path = tmp_path / "config.json"

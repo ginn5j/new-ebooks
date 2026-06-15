@@ -6,6 +6,7 @@ from new_ebooks.cli import (
     _fetch_with_auth,
     _provider_tools,
     _prune_result_files,
+    _require_macos,
     _result_file_path,
     _slugify,
 )
@@ -105,6 +106,13 @@ def test_prune_result_files_disabled_when_zero(tmp_path):
         (results / f"new_ebooks_lib_{i}.html").write_text("x")
     _prune_result_files(results, 0)
     assert len(list(results.glob("new_ebooks_*.html"))) == 3
+
+
+def test_require_macos(monkeypatch):
+    monkeypatch.setattr("new_ebooks.cli.sys.platform", "darwin")
+    assert _require_macos() is True
+    monkeypatch.setattr("new_ebooks.cli.sys.platform", "linux")
+    assert _require_macos() is False
 
 
 def test_provider_tools_overdrive():

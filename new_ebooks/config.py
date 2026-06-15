@@ -1,8 +1,18 @@
 from __future__ import annotations
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from typing import Optional
+
+
+def _known_fields(cls, data: dict) -> dict:
+    """Keep only keys matching ``cls``'s dataclass fields.
+
+    Lets a config written by a newer version (with extra keys) load on an
+    older one instead of raising TypeError from an unexpected argument.
+    """
+    valid = {f.name for f in fields(cls)}
+    return {k: v for k, v in data.items() if k in valid}
 
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "new_ebooks"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.json"
@@ -69,7 +79,7 @@ def _library_from_dict(lib: dict) -> LibraryConfig:
         lib["formats"] = [
             _CLOUDLIBRARY_FORMAT_MIGRATION.get(fmt, fmt) for fmt in lib["formats"]
         ]
-    return LibraryConfig(**lib)
+    return LibraryConfig(**_known_fields(LibraryConfig, lib))
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
@@ -79,7 +89,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
     libraries = [_library_from_dict(lib) for lib in data.get("libraries", [])]
     email = None
     if "email" in data and data["email"]:
-        email = EmailConfig(**data["email"])
+        email = EmailConfig(**_known_fields(EmailConfig, data["email"]))
     return Config(
         libraries=libraries,
         max_state_backups=data.get("max_state_backups", 10),
