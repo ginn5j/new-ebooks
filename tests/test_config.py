@@ -31,3 +31,42 @@ def test_legacy_config_without_language_loads(tmp_path):
 
     loaded = load_config(path)
     assert loaded.libraries[0].language is None
+
+
+def test_formats_round_trip(tmp_path):
+    path = tmp_path / "config.json"
+    config = Config(libraries=[
+        LibraryConfig(name="O", library_base_url="https://spl.overdrive.com",
+                      formats=["ebook-kindle", "audiobook"]),
+    ])
+    save_config(config, path)
+
+    loaded = load_config(path)
+    assert loaded.libraries[0].formats == ["ebook-kindle", "audiobook"]
+
+
+def test_default_formats():
+    lib = LibraryConfig(name="L", library_base_url="https://spl.overdrive.com")
+    assert lib.formats == ["ebook-kindle"]
+
+
+def test_legacy_single_format_migrates_to_formats(tmp_path):
+    """Configs written with the old single 'format' key become a one-element list."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"libraries": [
+        {"name": "L", "library_base_url": "https://spl.overdrive.com",
+         "format": "ebook-kindle", "provider": "overdrive"},
+    ]}))
+
+    loaded = load_config(path)
+    assert loaded.libraries[0].formats == ["ebook-kindle"]
+
+
+def test_save_config_omits_legacy_format_key(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(libraries=[
+        LibraryConfig(name="L", library_base_url="https://x.com", formats=["digital"]),
+    ]), path)
+    data = json.loads(path.read_text())
+    assert "format" not in data["libraries"][0]
+    assert data["libraries"][0]["formats"] == ["digital"]

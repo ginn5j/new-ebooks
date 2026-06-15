@@ -1,6 +1,7 @@
+import json
 import time
 from pathlib import Path
-from new_ebooks.state import State, LibraryState, save_state, load_state
+from new_ebooks.state import State, LibraryState, EBookState, save_state, load_state
 
 
 def _write_state(path: Path) -> None:
@@ -71,3 +72,49 @@ def test_state_roundtrip_after_backup(tmp_path):
     loaded = load_state(state_path)
     assert loaded is not None
     assert loaded.libraries == {}
+
+
+def test_anchors_round_trip(tmp_path):
+    state_path = tmp_path / "state.json"
+    original = State(libraries={"https://x.com": LibraryState(
+        anchors={
+            "ebook-kindle": EBookState("1", "r1", "Title One", "Author One"),
+            "audiobook": EBookState("2", "r2", "Title Two", "Author Two"),
+        },
+        last_checked="2026-01-01",
+    )})
+    save_state(original, state_path, max_backups=0)
+    loaded = load_state(state_path)
+    lib = loaded.libraries["https://x.com"]
+    assert lib.anchors["ebook-kindle"].overdrive_id == "1"
+    assert lib.anchors["audiobook"].title == "Title Two"
+
+
+def test_legacy_anchor_migrates_to_transient(tmp_path):
+    """An old state file's single most_recent_ebook loads as legacy_anchor."""
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"libraries": {"https://x.com": {
+        "most_recent_ebook": {
+            "overdrive_id": "9", "reserve_id": "r9",
+            "title": "Old Anchor", "first_creator_name": "Auth",
+        },
+        "last_checked": "2026-01-01",
+        "session_cookies": {},
+    }}}))
+    loaded = load_state(state_path)
+    lib = loaded.libraries["https://x.com"]
+    assert lib.anchors == {}
+    assert lib.legacy_anchor is not None
+    assert lib.legacy_anchor.overdrive_id == "9"
+
+
+def test_legacy_anchor_not_written_back(tmp_path):
+    """The transient legacy anchor is never serialized; only anchors are."""
+    state_path = tmp_path / "state.json"
+    original = State(libraries={"https://x.com": LibraryState(
+        legacy_anchor=EBookState("9", "r9", "Old Anchor", "Auth"),
+    )})
+    save_state(original, state_path, max_backups=0)
+    entry = json.loads(state_path.read_text())["libraries"]["https://x.com"]
+    assert "most_recent_ebook" not in entry
+    assert entry["anchors"] == {}

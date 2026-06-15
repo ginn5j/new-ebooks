@@ -10,8 +10,6 @@ from typing import Optional
 import keyring
 
 from new_ebooks.config import EmailConfig
-from new_ebooks.renderer import build_heading
-from new_ebooks.scraper import EBook
 
 KEYRING_SERVICE = "new-ebooks-smtp"
 
@@ -25,16 +23,11 @@ def set_smtp_password(smtp_user: str, password: str) -> None:
 
 
 def send_email(
-    books: list[EBook],
-    last_checked: str,
-    library_name: str,
-    library_base_url: str,
+    subject: str,
+    html: str,
     email_config: EmailConfig,
     password: str,
-    html: str,
 ) -> None:
-    subject = build_heading(len(books), last_checked, library_name)
-
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = email_config.smtp_from or email_config.smtp_user

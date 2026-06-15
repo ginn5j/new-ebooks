@@ -19,9 +19,14 @@ class EBookState:
 
 @dataclass
 class LibraryState:
-    most_recent_ebook: Optional[EBookState] = None
+    # Anchor ("most recent" item) per format, keyed by the format string.
+    anchors: dict[str, EBookState] = field(default_factory=dict)
     last_checked: Optional[str] = None
     session_cookies: dict = field(default_factory=dict)
+    # Transient: a pre-multi-format anchor read from an old state file. It is
+    # never written back; the CLI consumes it into ``anchors`` for the
+    # library's primary format on the next save. See load_state.
+    legacy_anchor: Optional[EBookState] = None
 
 
 @dataclass
@@ -35,12 +40,22 @@ def load_state(path: Path = DEFAULT_STATE_PATH) -> Optional[State]:
     data = json.loads(path.read_text())
     libraries = {}
     for url, lib_data in data.get("libraries", {}).items():
-        mre_data = lib_data.get("most_recent_ebook")
-        mre = EBookState(**mre_data) if mre_data else None
+        anchors = {
+            fmt: EBookState(**a)
+            for fmt, a in (lib_data.get("anchors") or {}).items()
+        }
+        # Migrate a legacy single-format anchor. State has no access to the
+        # config here, so it can't know which format it belongs to; carry it
+        # as a transient that the CLI attaches to the primary format.
+        legacy_anchor = None
+        legacy_data = lib_data.get("most_recent_ebook")
+        if legacy_data and not anchors:
+            legacy_anchor = EBookState(**legacy_data)
         libraries[url] = LibraryState(
-            most_recent_ebook=mre,
+            anchors=anchors,
             last_checked=lib_data.get("last_checked"),
             session_cookies=lib_data.get("session_cookies", {}),
+            legacy_anchor=legacy_anchor,
         )
     return State(libraries=libraries)
 
@@ -70,11 +85,10 @@ def save_state(state: State, path: Path = DEFAULT_STATE_PATH, max_backups: int =
         entry: dict = {
             "last_checked": lib_state.last_checked,
             "session_cookies": lib_state.session_cookies,
+            "anchors": {
+                fmt: asdict(anchor) for fmt, anchor in lib_state.anchors.items()
+            },
         }
-        if lib_state.most_recent_ebook:
-            entry["most_recent_ebook"] = asdict(lib_state.most_recent_ebook)
-        else:
-            entry["most_recent_ebook"] = None
         data["libraries"][url] = entry
     # Write atomically: session cookies live here, so keep it private (0600),
     # and a crash mid-write must not corrupt the existing state file.
