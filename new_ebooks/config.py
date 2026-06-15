@@ -16,6 +16,9 @@ class LibraryConfig:
     request_delay_seconds: float = 1.0
     member_library: Optional[str] = None
     provider: str = "overdrive"
+    # Language filter: "all", "english", or None (unset → preserve the
+    # provider's default behavior). See each provider's build_search_url.
+    language: Optional[str] = None
 
 
 @dataclass

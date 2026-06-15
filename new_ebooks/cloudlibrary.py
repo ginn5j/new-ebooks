@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from typing import Optional
 from urllib.parse import urlencode
 
 import requests
@@ -7,15 +8,29 @@ import requests
 from new_ebooks.scraper import EBook
 
 
-def build_search_url(base_url: str, format: str, page: int = 1) -> str:
+def _cloudlibrary_language_value(language: Optional[str]) -> str:
+    """Map a neutral language token to CloudLibrary's URL value.
+
+    None/"english" → "eng" (current default); "all" → no filter.
+    """
+    if language == "all":
+        return ""
+    return "eng"
+
+
+def build_search_url(
+    base_url: str, format: str, page: int = 1, language: Optional[str] = None
+) -> str:
     base_url = base_url.rstrip("/")
     params = {
         "_data": "routes/library.$name.search",
         "sort": "-dateadded",
         "format": format,
-        "language": "eng",
-        "segment": page,
     }
+    lang_value = _cloudlibrary_language_value(language)
+    if lang_value:
+        params["language"] = lang_value
+    params["segment"] = page
     return f"{base_url}/search?{urlencode(params)}"
 
 
