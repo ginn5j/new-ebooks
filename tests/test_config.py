@@ -22,6 +22,23 @@ def test_language_round_trips(tmp_path):
     assert loaded.libraries[1].language == "all"
 
 
+def test_max_result_files_defaults_to_ten():
+    assert Config().max_result_files == 10
+
+
+def test_max_result_files_round_trips(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(max_result_files=3), path)
+    assert load_config(path).max_result_files == 3
+
+
+def test_legacy_config_without_max_result_files_loads(tmp_path):
+    """Configs written before max_result_files default to 10 on load."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"libraries": []}))
+    assert load_config(path).max_result_files == 10
+
+
 def test_legacy_config_without_language_loads(tmp_path):
     """Configs written before the language field load with language=None."""
     path = tmp_path / "config.json"

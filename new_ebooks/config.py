@@ -39,6 +39,10 @@ class EmailConfig:
 class Config:
     libraries: list[LibraryConfig] = field(default_factory=list)
     max_state_backups: int = 10
+    # How many rendered result HTML files to keep on disk, newest first, so a
+    # user can review recent runs if they suspect a problem. 0 (or less)
+    # disables pruning and keeps every run.
+    max_result_files: int = 10
     email: Optional[EmailConfig] = None
 
 
@@ -79,6 +83,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
     return Config(
         libraries=libraries,
         max_state_backups=data.get("max_state_backups", 10),
+        max_result_files=data.get("max_result_files", 10),
         email=email,
     )
 
@@ -88,6 +93,7 @@ def save_config(config: Config, path: Path = DEFAULT_CONFIG_PATH) -> None:
     data = {
         "libraries": [asdict(lib) for lib in config.libraries],
         "max_state_backups": config.max_state_backups,
+        "max_result_files": config.max_result_files,
     }
     if config.email is not None:
         data["email"] = asdict(config.email)
