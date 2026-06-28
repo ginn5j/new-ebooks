@@ -30,6 +30,9 @@ def _escape(text: str) -> str:
 def _sanitize_description(html: str) -> str:
     """Strip all HTML tags and return plain text, HTML-escaped for safe insertion."""
     text = _ALL_TAGS_RE.sub(" ", html)
+    # Decode HTML entities (e.g. &bull;, &amp;) to their characters before
+    # re-escaping, so they don't survive as literal "&bull;" text in output.
+    text = html_mod.unescape(text)
     text = re.sub(r" {2,}", " ", text).strip()
     return _escape(text)
 
