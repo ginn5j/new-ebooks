@@ -113,6 +113,19 @@ def test_render_html_description():
     assert "<strong>Bold intro.</strong>" not in html
 
 
+def test_render_html_description_decodes_html_entities():
+    """HTML entities in descriptions are decoded to characters, not left literal."""
+    books = [EBook(
+        overdrive_id="1", reserve_id="r1", title="A Book", first_creator_name="Author",
+        description="#1 NEW YORK TIMES BESTSELLER &bull; The best book &amp; more."
+    )]
+    for html in (render_html(books, "2026-03-01"), render_email_html(books, "2026-03-01")):
+        assert "•" in html  # &bull; decoded to a real bullet
+        assert "&bull;" not in html  # no literal entity left
+        assert "&amp;bull;" not in html  # not double-escaped either
+        assert "The best book &amp; more." in html  # bare & still safely escaped
+
+
 def test_render_html_no_description_element_when_empty():
     books = [make_book("1", "A Book", "Author")]
     html = render_html(books, "2026-03-01")
