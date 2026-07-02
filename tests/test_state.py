@@ -1,6 +1,9 @@
 import json
 import time
 from pathlib import Path
+
+import pytest
+
 from new_ebooks.state import State, LibraryState, EBookState, save_state, load_state
 
 
@@ -152,3 +155,13 @@ def test_migrated_anchor_keys_persist_on_save(tmp_path):
     save_state(loaded, state_path, max_backups=0)
     entry = json.loads(state_path.read_text())["libraries"]["https://x.com"]
     assert set(entry["anchors"]) == {"ebook"}
+
+
+def test_corrupted_state_file_exits_with_clear_message(tmp_path):
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{not valid json")
+    with pytest.raises(SystemExit, match="not valid JSON"):
+        load_state(state_path)
+    # The message should point the user at the backups.
+    with pytest.raises(SystemExit, match="backup"):
+        load_state(state_path)
