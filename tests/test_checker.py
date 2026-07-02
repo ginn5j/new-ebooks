@@ -1,5 +1,6 @@
-import pytest
-from new_ebooks.checker import check_for_new_ebooks, find_anchor, MAX_PAGES
+import json as _json
+
+from new_ebooks.checker import check_for_new_ebooks, find_anchor
 from new_ebooks.config import LibraryConfig
 from new_ebooks.scraper import EBook
 from new_ebooks.state import LibraryState, EBookState
@@ -157,8 +158,6 @@ def test_page_shift_duplicates_removed(monkeypatch):
 
 # --- CloudLibrary-style provider override (url_builder + page_parser) ---
 
-import json as _json
-
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",
     library_base_url="https://ebook.yourcloudlibrary.com/library/scpl",
@@ -304,6 +303,34 @@ def test_anchor_found_flag_true_when_anchor_present():
     )
     _, _, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     assert anchor_found is True
+
+
+def test_first_run_empty_collection_is_not_flagged():
+    """A first run against an empty collection has no anchor to miss:
+    anchor_found stays True and no anchor is established."""
+    def fetcher(url: str) -> str:
+        return _make_html({})
+
+    new_books, anchor, anchor_found = check_for_new_ebooks(LIB_CONFIG, None, fetcher)
+    assert new_books == []
+    assert anchor is None
+    assert anchor_found is True
+
+
+def test_anchor_advances_to_newest_when_anchor_missing(monkeypatch):
+    """When the anchor is never found, the newest collected book still becomes
+    the next anchor so the tracker self-heals on the following run."""
+    monkeypatch.setattr("new_ebooks.checker.MAX_PAGES", 2)
+
+    def fetcher(url: str) -> str:
+        return _make_html({"new1": "New Book 1", "new2": "New Book 2"})
+
+    lib_state = LibraryState(
+        anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone", "Author")}
+    )
+    _, anchor, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    assert anchor_found is False
+    assert anchor.overdrive_id == "new1"
 
 
 def test_anchor_found_flag_true_on_first_run():

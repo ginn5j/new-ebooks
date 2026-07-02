@@ -72,14 +72,14 @@ def check_for_new_ebooks(
         html = fetcher(url)
         books = page_parser(html)
 
-        if not books:
-            # Ran out of pages without reaching the anchor.
-            break
-
         if anchor_id is None:
             # First run: just record the first book as anchor, collect nothing
             new_anchor = books[0] if books else None
             return [], new_anchor, True
+
+        if not books:
+            # Ran out of pages without reaching the anchor.
+            break
 
         idx = find_anchor(books, anchor_id)
         if idx is None:

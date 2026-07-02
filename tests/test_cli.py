@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import json
 
 import pytest
 
 import argparse
+
+import requests
 
 from new_ebooks.cli import (
     _fetch_with_auth,
@@ -13,11 +17,13 @@ from new_ebooks.cli import (
     _result_file_path,
     _retention_label,
     _slugify,
+    cmd_check,
     cmd_config,
 )
-from new_ebooks.config import LibraryConfig, load_config
-from new_ebooks.scraper import build_search_url, parse_page
-from new_ebooks.state import LibraryState
+from new_ebooks.config import Config, LibraryConfig, load_config, save_config
+from new_ebooks.cookies import cookie_dict
+from new_ebooks.scraper import parse_page
+from new_ebooks.state import EBookState, LibraryState, State, load_state, save_state
 
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",
@@ -220,3 +226,117 @@ def test_provider_tools_cloudlibrary():
     ]}}}))
     assert len(books) == 1
     assert books[0].detail_url == f"{CL_CONFIG.library_base_url}/detail/a1"
+
+
+def test_cookie_dict_survives_cross_domain_name_conflicts():
+    """dict(jar) raises CookieConflictError when the same cookie name exists
+    for two domains; the cookie_dict helper must not."""
+    jar = requests.cookies.RequestsCookieJar()
+    jar.set("sid", "1", domain="a.example.com", path="/")
+    jar.set("sid", "2", domain="b.example.com", path="/")
+    with pytest.raises(requests.cookies.CookieConflictError):
+        dict(jar)  # the failure mode cookie_dict exists to avoid
+    snapshot = cookie_dict(jar)
+    assert snapshot["sid"] in ("1", "2")
+
+
+# --- cmd_check end-to-end (network replaced by a fake fetcher) ---
+
+OD_URL = "https://lib.overdrive.com"
+OD_FMT = "ebook-epub-adobe"
+
+
+def _page_html(books: list[tuple[str, str]]) -> str:
+    """An Overdrive-style page whose titleCollection lists (id, title) in order."""
+    items = [
+        {"id": i, "reserveId": f"r{i}", "title": t, "firstCreatorName": "Author", "covers": {}}
+        for i, t in books
+    ]
+    return f"<html><script>window.OverDrive.titleCollection = {json.dumps(items)};</script></html>"
+
+
+def _check_env(tmp_path, pages: dict[int, str], anchor_id: str | None = "b1"):
+    """Write config/state files and return (args, config_path, state_path)."""
+    config_path = tmp_path / "config.json"
+    state_path = tmp_path / "state.json"
+    save_config(Config(libraries=[
+        LibraryConfig(name="Lib", library_base_url=OD_URL, formats=[OD_FMT],
+                      request_delay_seconds=0.0),
+    ]), config_path)
+    anchors = {}
+    if anchor_id:
+        anchors[OD_FMT] = EBookState(anchor_id, f"r{anchor_id}", "Anchor Book", "Author")
+    save_state(State(libraries={OD_URL: LibraryState(anchors=anchors)}), state_path, 0)
+    return argparse.Namespace(
+        config=str(config_path), state=str(state_path), verbose=False,
+        library=None, no_open=True, email=False, open=False,
+    ), config_path, state_path
+
+
+def _fake_fetch(pages: dict[int, str]):
+    """A _fetch_with_auth stand-in serving canned pages by page number."""
+    import re
+
+    def fake(session, lib_config, lib_state, delay=0.0):
+        def fetcher(url: str) -> str:
+            page = int(re.search(r"page=(\d+)", url).group(1))
+            return pages.get(page, _page_html([]))
+        return fetcher
+    return fake
+
+
+def test_cmd_check_new_books_writes_results_and_advances_anchor(tmp_path, monkeypatch, capsys):
+    pages = {1: _page_html([("b2", "New Book"), ("b1", "Anchor Book")])}
+    args, config_path, state_path = _check_env(tmp_path, pages)
+    monkeypatch.setattr("new_ebooks.cli._fetch_with_auth", _fake_fetch(pages))
+
+    assert cmd_check(args) == 0
+
+    results = list((tmp_path / "results").glob("new_ebooks_lib_*.html"))
+    assert len(results) == 1
+    html = results[0].read_text()
+    assert "New Book" in html and "Warning" not in html
+
+    state = load_state(state_path)
+    lib_state = state.libraries[OD_URL]
+    assert lib_state.anchors[OD_FMT].overdrive_id == "b2"
+    assert lib_state.last_checked is not None
+    assert "1 new" in capsys.readouterr().out
+
+
+def test_cmd_check_no_new_books_writes_nothing(tmp_path, monkeypatch, capsys):
+    pages = {1: _page_html([("b1", "Anchor Book"), ("b0", "Older Book")])}
+    args, _, state_path = _check_env(tmp_path, pages)
+    monkeypatch.setattr("new_ebooks.cli._fetch_with_auth", _fake_fetch(pages))
+
+    assert cmd_check(args) == 0
+    assert not (tmp_path / "results").exists()
+    # Anchor unchanged.
+    assert load_state(state_path).libraries[OD_URL].anchors[OD_FMT].overdrive_id == "b1"
+    assert "no new titles" in capsys.readouterr().out
+
+
+def test_cmd_check_missing_anchor_renders_warning(tmp_path, monkeypatch, capsys):
+    # The anchor never appears; page 2 is empty, so the listing runs out.
+    pages = {1: _page_html([("b2", "New Book")])}
+    args, _, state_path = _check_env(tmp_path, pages)
+    monkeypatch.setattr("new_ebooks.cli._fetch_with_auth", _fake_fetch(pages))
+
+    assert cmd_check(args) == 0
+    results = list((tmp_path / "results").glob("new_ebooks_lib_*.html"))
+    assert len(results) == 1
+    assert "Warning" in results[0].read_text()
+    # The anchor still advances so the next run self-heals.
+    assert load_state(state_path).libraries[OD_URL].anchors[OD_FMT].overdrive_id == "b2"
+    assert "WARNING" in capsys.readouterr().err
+
+
+def test_cmd_check_first_run_initializes_anchor_without_results(tmp_path, monkeypatch, capsys):
+    pages = {1: _page_html([("b2", "Newest Book"), ("b1", "Older Book")])}
+    args, _, state_path = _check_env(tmp_path, pages, anchor_id=None)
+    monkeypatch.setattr("new_ebooks.cli._fetch_with_auth", _fake_fetch(pages))
+
+    assert cmd_check(args) == 0
+    assert not (tmp_path / "results").exists()  # nothing to present yet
+    assert load_state(state_path).libraries[OD_URL].anchors[OD_FMT].overdrive_id == "b2"
+    assert "initialized" in capsys.readouterr().out

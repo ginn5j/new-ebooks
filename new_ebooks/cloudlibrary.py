@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 import requests
 
+from new_ebooks.cookies import cookie_dict
 from new_ebooks.scraper import EBook
 
 
@@ -86,4 +87,4 @@ def is_authenticated(response_text: str) -> bool:
 def init_session(session: requests.Session, library_base_url: str) -> dict:
     resp = session.get(library_base_url.rstrip("/"), timeout=15)
     resp.raise_for_status()
-    return dict(session.cookies)
+    return cookie_dict(session.cookies)

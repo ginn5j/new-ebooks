@@ -1,5 +1,4 @@
 import json
-import pytest
 from new_ebooks.cloudlibrary import build_search_url, parse_page, is_authenticated
 
 

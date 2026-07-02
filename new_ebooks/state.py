@@ -43,7 +43,14 @@ class State:
 def load_state(path: Path = DEFAULT_STATE_PATH) -> Optional[State]:
     if not path.exists():
         return None
-    data = json.loads(path.read_text())
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        raise SystemExit(
+            f"State file {path} is not valid JSON ({e}). "
+            f"Restore a backup from the same directory ({path.name}.<timestamp>) "
+            f"or delete it and run 'new-ebooks reset'."
+        )
     libraries = {}
     for url, lib_data in data.get("libraries", {}).items():
         anchors = {

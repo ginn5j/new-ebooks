@@ -56,7 +56,7 @@ def send_email(
                     server.sendmail(msg["From"], [email_config.smtp_to], raw)
             return
         # socket.timeout is a distinct class before Python 3.10
-        except (TimeoutError, socket.timeout, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
+        except (TimeoutError, socket.timeout, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected):
             if attempt < 2:
                 time.sleep(5)
                 continue

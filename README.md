@@ -5,7 +5,8 @@ A Python CLI tool that finds eBooks added to a library's digital collection sinc
 ## Requirements
 
 - Python 3.9+
-- macOS (credentials are stored in the macOS Keychain via `keyring`)
+- Any OS with a supported [`keyring`](https://pypi.org/project/keyring/) backend (macOS Keychain, Windows Credential Locker, Linux Secret Service) — credentials are stored there, never on disk
+- The `schedule`, `unschedule`, and `update-cache` commands are macOS-only (they rely on launchd); everything else works cross-platform
 
 ## Installation
 
@@ -55,6 +56,8 @@ new-ebooks check --no-open          # write HTML but don't open browser
 new-ebooks check --email            # send results by email, don't open browser
 new-ebooks check --email --open     # send results by email and open browser
 ```
+
+`--library` (here and in `edit`/`reset`) matches the configured library name exactly, including case.
 
 If there are no new eBooks since the last check, prints a message to the terminal. With `--email`, a "no new eBooks" message is still sent.
 
@@ -205,3 +208,13 @@ Once the number of result files exceeds the configured limit, the oldest are del
 Before each state save, the current `state.json` is copied to `state.json.{mtime}` where `{mtime}` is the file's last-modified timestamp. Once the number of backups exceeds the configured limit, the oldest are deleted.
 
 The default limit is 10. Change it with `new-ebooks config --max-state-backups N` (or interactively with `new-ebooks config`); set it to `0` to disable backups entirely. The value lives in `config.json` as `max_state_backups` and can also be edited there by hand.
+
+## Development
+
+```
+pip install -e ".[test]"
+pytest
+ruff check .    # lint (pip install ruff)
+```
+
+CI lints with ruff and runs the test suite on Python 3.9 through 3.13 for every pull request and push to `main`.

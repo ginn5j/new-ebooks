@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from new_ebooks.config import Config, LibraryConfig, load_config, save_config
 
 
@@ -86,7 +88,8 @@ def test_formats_round_trip(tmp_path):
 
 def test_default_formats():
     lib = LibraryConfig(name="L", library_base_url="https://spl.overdrive.com")
-    assert lib.formats == ["ebook-kindle"]
+    # Matches cmd_init's prompt default for Overdrive libraries.
+    assert lib.formats == ["ebook-epub-adobe"]
 
 
 def test_legacy_single_format_migrates_to_formats(tmp_path):
@@ -145,3 +148,17 @@ def test_overdrive_format_values_not_migrated(tmp_path):
 
     loaded = load_config(path)
     assert loaded.libraries[0].formats == ["ebook-kindle", "audiobook"]
+
+
+def test_corrupted_config_file_exits_with_clear_message(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text("{not valid json")
+    with pytest.raises(SystemExit, match="not valid JSON"):
+        load_config(path)
+
+
+def test_save_config_is_atomic_and_leaves_no_temp_file(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(max_state_backups=3), path)
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert load_config(path).max_state_backups == 3

@@ -15,7 +15,6 @@ from new_ebooks.config import (
     DEFAULT_CONFIG_PATH,
     EmailConfig,
     LibraryConfig,
-    Config,
     load_config,
     save_config,
 )
@@ -36,6 +35,7 @@ from new_ebooks.auth import (
 )
 import new_ebooks.cloudlibrary as cl
 from new_ebooks.checker import check_for_new_ebooks
+from new_ebooks.cookies import cookie_dict
 from new_ebooks.renderer import (
     format_date,
     page_heading,
@@ -104,7 +104,7 @@ def _fetch_with_auth(
         text = resp.text
         auth_check = cl.is_authenticated if is_cloudlibrary else is_authenticated
         if not auth_check(text):
-            print("Session expired. Re-authenticating...")
+            print("Session expired. Re-authenticating...", file=sys.stderr)
             try:
                 if is_cloudlibrary:
                     new_cookies = cl.init_session(session, lib_config.library_base_url)
@@ -453,7 +453,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         # Persist this library's state (anchors, timestamp, cookies) once.
         lib_state.last_checked = now
-        lib_state.session_cookies = dict(session.cookies)
+        lib_state.session_cookies = cookie_dict(session.cookies)
         state.libraries[url] = lib_state
         save_state(state, state_path, config.max_state_backups)
 
@@ -562,7 +562,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
             continue
 
         lib_state.last_checked = datetime.now(timezone.utc).isoformat()
-        lib_state.session_cookies = dict(session.cookies)
+        lib_state.session_cookies = cookie_dict(session.cookies)
         state.libraries[url] = lib_state
         save_state(state, state_path, config.max_state_backups)
         print("Reset complete.")
@@ -611,18 +611,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     results_dir = config_path.parent / "results"
     kept = len(list(results_dir.glob("new_ebooks_*.html"))) if results_dir.exists() else 0
     retention = "all (pruning off)" if config.max_result_files <= 0 else str(config.max_result_files)
-    print(f"\nResult files")
+    print("\nResult files")
     print(f"  Directory: {results_dir}")
     print(f"  Keeping:   {retention} ({kept} on disk)")
 
     backups = "all (backups off)" if config.max_state_backups <= 0 else str(config.max_state_backups)
-    print(f"\nState backups")
+    print("\nState backups")
     print(f"  Keeping:   {backups}")
-    print(f"  Change with: new-ebooks config")
+    print("  Change with: new-ebooks config")
 
     if config.email:
         e = config.email
-        print(f"\nEmail")
+        print("\nEmail")
         print(f"  SMTP:   {e.smtp_host}:{e.smtp_port} (TLS: {e.use_tls})")
         print(f"  User:   {e.smtp_user}")
         print(f"  From:   {e.smtp_from}")
@@ -665,8 +665,8 @@ def cmd_edit(args: argparse.Namespace) -> int:
         lib = config.libraries[0]
     else:
         print("Select a library to edit:")
-        for i, l in enumerate(config.libraries, 1):
-            print(f"  {i}. {l.name}")
+        for i, entry in enumerate(config.libraries, 1):
+            print(f"  {i}. {entry.name}")
         choice = input("Enter number: ").strip()
         try:
             lib = config.libraries[int(choice) - 1]
@@ -677,7 +677,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
     print(f"Editing '{lib.name}'. Press Enter to keep the current value.")
 
     name = input(f"Library name [{lib.name}]: ").strip() or lib.name
-    library_url = input(f"Overdrive base URL [{lib.library_base_url}]: ").strip().rstrip("/") or lib.library_base_url
+    library_url = input(f"Base URL [{lib.library_base_url}]: ").strip().rstrip("/") or lib.library_base_url
     delay_str = input(f"Request delay seconds [{lib.request_delay_seconds}]: ").strip()
     delay = float(delay_str) if delay_str else lib.request_delay_seconds
 
@@ -708,6 +708,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         print("Unknown language filter. Use 'all' or 'english'.", file=sys.stderr)
         return 1
 
+    old_url = lib.library_base_url
     lib.name = name
     lib.library_base_url = library_url
     lib.formats = formats
@@ -717,6 +718,16 @@ def cmd_edit(args: argparse.Namespace) -> int:
     lib.language = language
 
     save_config(config, config_path)
+
+    if library_url != old_url:
+        # State is keyed by base URL; move this library's entry to the new key
+        # so its anchors and cookies aren't stranded under the old URL.
+        state_path = Path(args.state)
+        state = load_state(state_path)
+        if state and old_url in state.libraries:
+            state.libraries[library_url] = state.libraries.pop(old_url)
+            save_state(state, state_path, config.max_state_backups)
+
     print(f"Saved. Run 'new-ebooks reset --library \"{lib.name}\"' to re-establish the anchor.")
     return 0
 
@@ -801,7 +812,8 @@ def cmd_email_config(args: argparse.Namespace) -> int:
     smtp_user = input(f"SMTP username [{current_user}]: ").strip() or current_user
 
     change_password = True
-    if current and get_smtp_password(current.smtp_user):
+    stored_password = get_smtp_password(current.smtp_user) if current else None
+    if stored_password:
         resp = input("SMTP password is already set. Change it? (y/n) [n]: ").strip().lower()
         change_password = resp == "y"
     if change_password:
@@ -809,6 +821,9 @@ def cmd_email_config(args: argparse.Namespace) -> int:
         password = getpass.getpass("SMTP password: ")
         if password:
             set_smtp_password(smtp_user, password)
+    elif stored_password and smtp_user != current.smtp_user:
+        # The password is keyed by username; keep it reachable under the new one.
+        set_smtp_password(smtp_user, stored_password)
 
     current_from = current.smtp_from if current else smtp_user
     smtp_from = input(f"From address [{current_from}]: ").strip() or current_from
@@ -832,7 +847,7 @@ def cmd_email_config(args: argparse.Namespace) -> int:
         use_tls=use_tls,
     )
     save_config(config, config_path)
-    print(f"\nEmail configured. Run 'new-ebooks check --email' to send results.")
+    print("\nEmail configured. Run 'new-ebooks check --email' to send results.")
     return 0
 
 
@@ -852,7 +867,7 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         return 1
     from new_ebooks.scheduler import (
         write_plist, load_plist, unload_plist,
-        get_schedule_info, is_loaded, WEEKDAY_NAMES, PLIST_PATH,
+        get_schedule_info, is_loaded, WEEKDAY_NAMES,
     )
     from new_ebooks.config import DEFAULT_CONFIG_DIR
 
@@ -923,7 +938,7 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 
     day_name = WEEKDAY_NAMES[weekday]
     print(f"\nScheduled: every {day_name} at {hour:02d}:{minute:02d}.")
-    print(f"If the computer is asleep at that time, the check will run at next wake.")
+    print("If the computer is asleep at that time, the check will run at next wake.")
     print(f"Output logged to: {log_path}")
     return 0
 
@@ -971,7 +986,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="new-ebooks",
-        description="Find eBooks added to an Overdrive library since your last check.",
+        description="Find new titles added to an Overdrive or CloudLibrary collection since your last check.",
     )
     parser.add_argument("--config", default=default_config, metavar="PATH", help="Config file path")
     parser.add_argument("--state", default=default_state, metavar="PATH", help="State file path")
