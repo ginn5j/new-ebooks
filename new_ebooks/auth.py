@@ -7,6 +7,8 @@ import keyring
 import requests
 from bs4 import BeautifulSoup
 
+from new_ebooks.cookies import cookie_dict
+
 KEYCHAIN_SERVICE = "new-ebooks"
 
 
@@ -37,6 +39,9 @@ def get_credentials(library_url: str, member_library: Optional[str] = None) -> t
     print(f"No stored credentials found for {key}.")
     card_number = input("Library card number: ").strip()
     pin = getpass.getpass("PIN: ").strip()
+    # Stored as "card:pin" and split on the first colon when read back, so
+    # the card number must not contain ":" (PINs may — only the first colon
+    # separates). Card numbers are digits in practice.
     keyring.set_password(KEYCHAIN_SERVICE, key, f"{card_number}:{pin}")
     return card_number, pin
 
@@ -157,9 +162,9 @@ def login(
             from urllib.parse import urlparse
             host = urlparse(e.response.url).hostname or ""
             if "overdrive.com" in host:
-                return dict(session.cookies)
+                return cookie_dict(session.cookies)
         raise
-    return dict(session.cookies)
+    return cookie_dict(session.cookies)
 
 
 def is_authenticated(html: str) -> bool:

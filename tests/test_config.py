@@ -86,7 +86,8 @@ def test_formats_round_trip(tmp_path):
 
 def test_default_formats():
     lib = LibraryConfig(name="L", library_base_url="https://spl.overdrive.com")
-    assert lib.formats == ["ebook-kindle"]
+    # Matches cmd_init's prompt default for Overdrive libraries.
+    assert lib.formats == ["ebook-epub-adobe"]
 
 
 def test_legacy_single_format_migrates_to_formats(tmp_path):
