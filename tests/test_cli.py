@@ -20,7 +20,7 @@ from new_ebooks.cli import (
 )
 from new_ebooks.config import Config, LibraryConfig, load_config, save_config
 from new_ebooks.cookies import cookie_dict
-from new_ebooks.scraper import build_search_url, parse_page
+from new_ebooks.scraper import parse_page
 from new_ebooks.state import EBookState, LibraryState, State, load_state, save_state
 
 CL_CONFIG = LibraryConfig(

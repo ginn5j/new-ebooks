@@ -1,5 +1,6 @@
-import pytest
-from new_ebooks.checker import check_for_new_ebooks, find_anchor, MAX_PAGES
+import json as _json
+
+from new_ebooks.checker import check_for_new_ebooks, find_anchor
 from new_ebooks.config import LibraryConfig
 from new_ebooks.scraper import EBook
 from new_ebooks.state import LibraryState, EBookState
@@ -156,8 +157,6 @@ def test_page_shift_duplicates_removed(monkeypatch):
 
 
 # --- CloudLibrary-style provider override (url_builder + page_parser) ---
-
-import json as _json
 
 CL_CONFIG = LibraryConfig(
     name="CloudLibrary Test",

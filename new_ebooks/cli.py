@@ -15,7 +15,6 @@ from new_ebooks.config import (
     DEFAULT_CONFIG_PATH,
     EmailConfig,
     LibraryConfig,
-    Config,
     load_config,
     save_config,
 )
@@ -612,18 +611,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     results_dir = config_path.parent / "results"
     kept = len(list(results_dir.glob("new_ebooks_*.html"))) if results_dir.exists() else 0
     retention = "all (pruning off)" if config.max_result_files <= 0 else str(config.max_result_files)
-    print(f"\nResult files")
+    print("\nResult files")
     print(f"  Directory: {results_dir}")
     print(f"  Keeping:   {retention} ({kept} on disk)")
 
     backups = "all (backups off)" if config.max_state_backups <= 0 else str(config.max_state_backups)
-    print(f"\nState backups")
+    print("\nState backups")
     print(f"  Keeping:   {backups}")
-    print(f"  Change with: new-ebooks config")
+    print("  Change with: new-ebooks config")
 
     if config.email:
         e = config.email
-        print(f"\nEmail")
+        print("\nEmail")
         print(f"  SMTP:   {e.smtp_host}:{e.smtp_port} (TLS: {e.use_tls})")
         print(f"  User:   {e.smtp_user}")
         print(f"  From:   {e.smtp_from}")
@@ -666,8 +665,8 @@ def cmd_edit(args: argparse.Namespace) -> int:
         lib = config.libraries[0]
     else:
         print("Select a library to edit:")
-        for i, l in enumerate(config.libraries, 1):
-            print(f"  {i}. {l.name}")
+        for i, entry in enumerate(config.libraries, 1):
+            print(f"  {i}. {entry.name}")
         choice = input("Enter number: ").strip()
         try:
             lib = config.libraries[int(choice) - 1]
@@ -848,7 +847,7 @@ def cmd_email_config(args: argparse.Namespace) -> int:
         use_tls=use_tls,
     )
     save_config(config, config_path)
-    print(f"\nEmail configured. Run 'new-ebooks check --email' to send results.")
+    print("\nEmail configured. Run 'new-ebooks check --email' to send results.")
     return 0
 
 
@@ -868,7 +867,7 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         return 1
     from new_ebooks.scheduler import (
         write_plist, load_plist, unload_plist,
-        get_schedule_info, is_loaded, WEEKDAY_NAMES, PLIST_PATH,
+        get_schedule_info, is_loaded, WEEKDAY_NAMES,
     )
     from new_ebooks.config import DEFAULT_CONFIG_DIR
 
@@ -939,7 +938,7 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 
     day_name = WEEKDAY_NAMES[weekday]
     print(f"\nScheduled: every {day_name} at {hour:02d}:{minute:02d}.")
-    print(f"If the computer is asleep at that time, the check will run at next wake.")
+    print("If the computer is asleep at that time, the check will run at next wake.")
     print(f"Output logged to: {log_path}")
     return 0
 

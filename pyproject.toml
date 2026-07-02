@@ -5,6 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "new-ebooks"
 version = "0.1.0"
+description = "Find new titles added to an Overdrive or CloudLibrary collection since your last check"
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+]
 requires-python = ">=3.9"
 dependencies = [
     "requests>=2.31",
