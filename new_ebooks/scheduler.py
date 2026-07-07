@@ -86,7 +86,17 @@ def write_plist(check_args: list[str], weekday: int, hour: int, minute: int, log
 
     plist = {
         "Label": PLIST_LABEL,
-        "ProgramArguments": [sys.executable, str(LAUNCHER_PATH), "check"] + check_args,
+        # caffeinate holds the Mac awake for the run's duration: scheduled
+        # checks often fire right after a sleep-wake, and dropping back to
+        # sleep mid-run kills connections. --verbose (a global flag, so it
+        # precedes the subcommand) gets full tracebacks into the log.
+        "ProgramArguments": [
+            "/usr/bin/caffeinate", "-i", "-s",
+            sys.executable, str(LAUNCHER_PATH), "--verbose", "check",
+        ] + check_args,
+        # Interactive band — without this, launchd may deprioritize the
+        # job's CPU and network as background work.
+        "ProcessType": "Interactive",
         "StartCalendarInterval": {
             "Weekday": weekday,
             "Hour": hour,
@@ -133,11 +143,13 @@ def get_schedule_info() -> Optional[dict]:
     interval = plist.get("StartCalendarInterval", {})
     prog_args = plist.get("ProgramArguments", [])
     # Support all plist formats across versions:
-    #   current: [python, launcher.py, check, ...args]
+    #   current: [caffeinate, -i, -s, python, launcher.py, --verbose, check, ...args]
+    #   v3:      [python, launcher.py, check, ...args]
     #   v2:      [python, -m, new_ebooks, check, ...args]
     #   v1:      [script, check, ...args]
-    if len(prog_args) >= 3 and prog_args[1] == str(LAUNCHER_PATH):
-        check_args = prog_args[3:]
+    if str(LAUNCHER_PATH) in prog_args:
+        rest = prog_args[prog_args.index(str(LAUNCHER_PATH)) + 1:]
+        check_args = rest[rest.index("check") + 1:] if "check" in rest else []
     elif len(prog_args) >= 4 and prog_args[1:3] == ["-m", "new_ebooks"]:
         check_args = prog_args[4:]
     else:

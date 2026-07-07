@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import re
+import socket
 import sys
 import time
 import traceback
@@ -68,6 +69,33 @@ def _make_session(cookies: dict) -> requests.Session:
     return session
 
 
+def _wait_for_network(timeout: float = 180.0, interval: float = 10.0) -> bool:
+    """Wait until the network is reachable, or the deadline passes.
+
+    Scheduled runs can start moments after the Mac wakes, before Wi-Fi has
+    re-associated — probe until a connection succeeds.
+    """
+    deadline = time.monotonic() + timeout
+    waited = False
+    while True:
+        try:
+            with socket.create_connection(("1.1.1.1", 443), timeout=5):
+                return True
+        except OSError:
+            pass
+        try:
+            socket.getaddrinfo("overdrive.com", 443)
+            return True
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        if not waited:
+            print("Network unreachable; waiting for it to come up...", file=sys.stderr)
+            waited = True
+        time.sleep(interval)
+
+
 def _fetch_with_auth(
     session: requests.Session,
     lib_config: LibraryConfig,
@@ -78,29 +106,49 @@ def _fetch_with_auth(
 
     extra_headers = {"Accept": "application/json"} if is_cloudlibrary else {}
 
+    def reauth_stored() -> None:
+        """Re-authenticate using stored credentials only (never prompts)."""
+        if is_cloudlibrary:
+            new_cookies = cl.init_session(session, lib_config.library_base_url)
+        else:
+            creds = get_stored_credentials(lib_config.library_base_url, lib_config.member_library)
+            if not creds:
+                return
+            card_number, pin = creds
+            new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
+        if new_cookies is not None:
+            lib_state.session_cookies = new_cookies
+
+    # Scheduled runs can fire moments after a sleep-wake, when the network
+    # is still flaky — ride out transient failures with escalating timeouts.
+    timeouts = (30, 60, 90)
+    backoffs = (5, 20)
+
     def fetcher(url: str) -> str:
-        if delay:
-            time.sleep(delay)
-        try:
-            resp = session.get(url, timeout=30, headers=extra_headers)
-        except requests.exceptions.Timeout:
-            print("Request timed out; re-authenticating and retrying...", file=sys.stderr)
+        resp = None
+        for attempt, timeout in enumerate(timeouts):
+            if delay:
+                time.sleep(delay)
             try:
-                if is_cloudlibrary:
-                    new_cookies = cl.init_session(session, lib_config.library_base_url)
-                else:
-                    creds = get_stored_credentials(lib_config.library_base_url, lib_config.member_library)
-                    if creds:
-                        card_number, pin = creds
-                        new_cookies = login(session, lib_config.library_base_url, lib_config.member_library, card_number, pin)
-                    else:
-                        new_cookies = None
-                if new_cookies is not None:
-                    lib_state.session_cookies = new_cookies
-            except Exception as auth_e:
-                print(f"Re-authentication failed: {auth_e}", file=sys.stderr)
-            resp = session.get(url, timeout=60, headers=extra_headers)
-        resp.raise_for_status()
+                resp = session.get(url, timeout=timeout, headers=extra_headers)
+                resp.raise_for_status()
+                break
+            except requests.exceptions.RequestException as e:
+                status = getattr(e.response, "status_code", None)
+                transient = (
+                    isinstance(e, (requests.exceptions.Timeout, requests.exceptions.ConnectionError))
+                    or (status is not None and status >= 500)
+                )
+                if not transient or attempt == len(timeouts) - 1:
+                    raise
+                print(f"Request failed ({e}); retrying in {backoffs[attempt]}s...", file=sys.stderr)
+                time.sleep(backoffs[attempt])
+                # The failure may have invalidated the session; refresh it
+                # best-effort before retrying.
+                try:
+                    reauth_stored()
+                except Exception as auth_e:
+                    print(f"Re-authentication failed: {auth_e}", file=sys.stderr)
         text = resp.text
         auth_check = cl.is_authenticated if is_cloudlibrary else is_authenticated
         if not auth_check(text):
@@ -369,6 +417,9 @@ def cmd_check(args: argparse.Namespace) -> int:
             return 1
     else:
         libs = config.libraries
+
+    if args.wait_for_network and not _wait_for_network():
+        print("Warning: network still unreachable after waiting; proceeding anyway.", file=sys.stderr)
 
     exit_code = 0
     for lib_config in libs:
@@ -920,6 +971,8 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         check_args = ["--no-open"]
         print("Note: email is not configured — scheduled check will run with --no-open.")
         print("Run 'new-ebooks email' to configure email delivery.")
+    # Scheduled runs may fire right after a sleep-wake, before the network is up.
+    check_args.append("--wait-for-network")
 
     log_path = DEFAULT_CONFIG_DIR / "check.log"
 
@@ -1003,6 +1056,11 @@ def main() -> None:
     check_p.add_argument("--no-open", action="store_true", help="Don't open results in browser")
     check_p.add_argument("--email", action="store_true", help="Send results by email (skips browser by default)")
     check_p.add_argument("--open", action="store_true", help="Open results in browser even when --email is used")
+    check_p.add_argument(
+        "--wait-for-network",
+        action="store_true",
+        help="Wait up to 3 minutes for network connectivity before checking (used by scheduled runs)",
+    )
 
     # edit
     edit_p = subparsers.add_parser("edit", help="Edit a library's configuration")

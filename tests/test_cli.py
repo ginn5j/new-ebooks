@@ -11,6 +11,7 @@ import requests
 from new_ebooks.cli import (
     _fetch_with_auth,
     _parse_retention,
+    _wait_for_network,
     _provider_tools,
     _prune_result_files,
     _require_macos,
@@ -75,6 +76,122 @@ def test_fetcher_raises_when_reauth_does_not_restore_access():
     fetcher = _fetch_with_auth(session, CL_CONFIG, LibraryState())
     with pytest.raises(RuntimeError, match="re-authentication did not restore access"):
         fetcher("https://example.com/search")
+
+
+class ErrorResponse:
+    """Response whose raise_for_status raises HTTPError with this status."""
+
+    text = ""
+
+    def __init__(self, status: int):
+        self.status_code = status
+
+    def raise_for_status(self) -> None:
+        raise requests.exceptions.HTTPError(str(self.status_code), response=self)
+
+
+class FlakySession:
+    """Stands in for requests.Session; pops queued exceptions/responses per get."""
+
+    def __init__(self, queue: list):
+        self.queue = list(queue)
+        self.cookies = {}
+        self.calls = 0
+
+    def get(self, url, timeout=None, headers=None):
+        self.calls += 1
+        item = self.queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _no_network_side_effects(monkeypatch):
+    monkeypatch.setattr("new_ebooks.cli.time.sleep", lambda s: None)
+    monkeypatch.setattr("new_ebooks.cli.cl.init_session", lambda session, url: {})
+
+
+def test_fetcher_retries_transient_network_errors(monkeypatch):
+    _no_network_side_effects(monkeypatch)
+    session = FlakySession([
+        requests.exceptions.ConnectionError("Connection reset by peer"),
+        requests.exceptions.ReadTimeout("Read timed out"),
+        FakeResponse(AUTHED_JSON),
+    ])
+    fetcher = _fetch_with_auth(session, CL_CONFIG, LibraryState())
+    assert fetcher("https://example.com/search") == AUTHED_JSON
+    assert session.calls == 3
+
+
+def test_fetcher_retries_server_errors(monkeypatch):
+    _no_network_side_effects(monkeypatch)
+    session = FlakySession([ErrorResponse(503), FakeResponse(AUTHED_JSON)])
+    fetcher = _fetch_with_auth(session, CL_CONFIG, LibraryState())
+    assert fetcher("https://example.com/search") == AUTHED_JSON
+    assert session.calls == 2
+
+
+def test_fetcher_gives_up_after_three_transient_failures(monkeypatch):
+    _no_network_side_effects(monkeypatch)
+    session = FlakySession([requests.exceptions.ConnectionError("reset")] * 3)
+    fetcher = _fetch_with_auth(session, CL_CONFIG, LibraryState())
+    with pytest.raises(requests.exceptions.ConnectionError):
+        fetcher("https://example.com/search")
+    assert session.calls == 3
+
+
+def test_fetcher_does_not_retry_client_errors(monkeypatch):
+    _no_network_side_effects(monkeypatch)
+    session = FlakySession([ErrorResponse(404)])
+    fetcher = _fetch_with_auth(session, CL_CONFIG, LibraryState())
+    with pytest.raises(requests.exceptions.HTTPError):
+        fetcher("https://example.com/search")
+    assert session.calls == 1
+
+
+# --- _wait_for_network ---
+
+
+class _FakeConn:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_wait_for_network_returns_true_when_reachable(monkeypatch):
+    monkeypatch.setattr("new_ebooks.cli.socket.create_connection", lambda *a, **k: _FakeConn())
+    assert _wait_for_network(timeout=1) is True
+
+
+def test_wait_for_network_recovers_after_outage(monkeypatch):
+    calls = {"n": 0}
+
+    def create_connection(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("unreachable")
+        return _FakeConn()
+
+    def getaddrinfo(*args, **kwargs):
+        raise OSError("no dns")
+
+    monkeypatch.setattr("new_ebooks.cli.socket.create_connection", create_connection)
+    monkeypatch.setattr("new_ebooks.cli.socket.getaddrinfo", getaddrinfo)
+    monkeypatch.setattr("new_ebooks.cli.time.sleep", lambda s: None)
+    assert _wait_for_network(timeout=60, interval=0) is True
+    assert calls["n"] == 2
+
+
+def test_wait_for_network_gives_up_at_deadline(monkeypatch):
+    def unreachable(*args, **kwargs):
+        raise OSError("unreachable")
+
+    monkeypatch.setattr("new_ebooks.cli.socket.create_connection", unreachable)
+    monkeypatch.setattr("new_ebooks.cli.socket.getaddrinfo", unreachable)
+    monkeypatch.setattr("new_ebooks.cli.time.sleep", lambda s: None)
+    assert _wait_for_network(timeout=0) is False
 
 
 def test_slugify():
@@ -270,6 +387,7 @@ def _check_env(tmp_path, pages: dict[int, str], anchor_id: str | None = "b1"):
     return argparse.Namespace(
         config=str(config_path), state=str(state_path), verbose=False,
         library=None, no_open=True, email=False, open=False,
+        wait_for_network=False,
     ), config_path, state_path
 
 

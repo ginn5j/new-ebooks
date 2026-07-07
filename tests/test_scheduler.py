@@ -54,12 +54,24 @@ def test_write_plist_writes_launcher_and_package_cache(tmp_path, monkeypatch):
 
     with open(tmp_path / "test.plist", "rb") as f:
         plist = plistlib.load(f)
-    assert plist["ProgramArguments"][:3] == [
+    assert plist["ProgramArguments"] == [
+        "/usr/bin/caffeinate", "-i", "-s",
         sys.executable,
         str(tmp_path / "launcher.py"),
+        "--verbose",
         "check",
+        "--no-open",
     ]
+    assert plist["ProcessType"] == "Interactive"
     assert plist["StandardOutPath"] == str(tmp_path / "check.log")
+
+
+def test_get_schedule_info_parses_v3_launcher_layout(tmp_path, monkeypatch):
+    _write_manual_plist(
+        monkeypatch, tmp_path,
+        [sys.executable, str(tmp_path / "launcher.py"), "check", "--email"],
+    )
+    assert scheduler.get_schedule_info()["check_args"] == ["--email"]
 
 
 def test_get_schedule_info_parses_v2_module_layout(tmp_path, monkeypatch):
