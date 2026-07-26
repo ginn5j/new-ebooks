@@ -35,6 +35,12 @@ class LibraryConfig:
     # Language filter: "all", "english", or None (unset → preserve the
     # provider's default behavior). See each provider's build_search_url.
     language: Optional[str] = None
+    # Some Overdrive sites serve browsable search results to signed-out
+    # visitors, and no longer host the scrapable card/PIN sign-in form (their
+    # /account/oauthsignin redirects away to www.overdrive.com). For those,
+    # cmd_init probes anonymously and records False here so checks never log
+    # in or prompt for credentials.
+    requires_auth: bool = True
 
 
 @dataclass
