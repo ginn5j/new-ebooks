@@ -382,10 +382,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     # the ones with no scrapable sign-in form left to post to. Consortial sites
     # are excluded: signed out, they may answer with the consortium-wide
     # catalog rather than the chosen member library's.
-    if provider_input == "overdrive" and not member_library:
-        if _browsable_anonymously(session, lib_config):
-            print("This library allows signed-out browsing; skipping sign-in.")
-            lib_config.requires_auth = False
+    if provider_input == "overdrive" and not member_library and _browsable_anonymously(session, lib_config):
+        print("This library allows signed-out browsing; skipping sign-in.")
+        lib_config.requires_auth = False
 
     cookies: dict = {}
     if lib_config.requires_auth:
