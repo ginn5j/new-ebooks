@@ -33,9 +33,27 @@ where = ["."]
 include = ["new_ebooks*"]
 
 [tool.ruff.lint]
-# CI installs ruff unpinned, so leaving this unset means each new ruff release
-# can turn the build red on untouched code — 0.16 broadening the defaults did
-# exactly that. These are the rules the repo has always been linted against
-# (ruff's historical default select); widening it is a deliberate, separate
-# change with its own cleanup.
-select = ["E4", "E7", "E9", "F"]
+# Selected explicitly, never left to ruff's defaults: CI installs ruff
+# unpinned, so an implicit rule set lets each new release turn the build red on
+# untouched code (0.16 broadening its defaults did exactly that). Adding a rule
+# here is a deliberate change that carries its own cleanup.
+select = [
+    "E4", "E7", "E9", "F",
+    "I",        # import sorting
+    "UP",       # pyupgrade
+    "BLE001",   # blind except
+    "C408",     # unnecessary dict()/list() calls
+    "DTZ005",   # naive datetime.now()
+    "PLR0402",  # import x.y as y
+    "PLW1510",  # subprocess.run without explicit check=
+    "RUF019",   # redundant key-then-index
+    "RUF059",   # unused unpacked variable
+    "SIM102",   # collapsible if
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Every command is a boundary between the user and the network, the keychain,
+# launchd and SMTP; each catch-all reports the failure and continues or exits
+# non-zero, which is the point. Narrowing them would only re-raise as a
+# traceback at the user.
+"new_ebooks/cli.py" = ["BLE001"]

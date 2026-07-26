@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 import json
 import os
 import shutil
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 DEFAULT_STATE_PATH = Path.home() / ".config" / "new_ebooks" / "state.json"
 
@@ -27,12 +27,12 @@ class EBookState:
 class LibraryState:
     # Anchor ("most recent" item) per format, keyed by the format string.
     anchors: dict[str, EBookState] = field(default_factory=dict)
-    last_checked: Optional[str] = None
+    last_checked: str | None = None
     session_cookies: dict = field(default_factory=dict)
     # Transient: a pre-multi-format anchor read from an old state file. It is
     # never written back; the CLI consumes it into ``anchors`` for the
     # library's primary format on the next save. See load_state.
-    legacy_anchor: Optional[EBookState] = None
+    legacy_anchor: EBookState | None = None
 
 
 @dataclass
@@ -40,7 +40,7 @@ class State:
     libraries: dict[str, LibraryState] = field(default_factory=dict)
 
 
-def load_state(path: Path = DEFAULT_STATE_PATH) -> Optional[State]:
+def load_state(path: Path = DEFAULT_STATE_PATH) -> State | None:
     if not path.exists():
         return None
     try:

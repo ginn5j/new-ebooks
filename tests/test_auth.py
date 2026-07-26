@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-import new_ebooks.auth as auth
+from new_ebooks import auth
 from new_ebooks.auth import (
     KEYCHAIN_SERVICE,
     credential_key,

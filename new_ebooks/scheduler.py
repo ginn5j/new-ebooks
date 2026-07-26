@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 import os
 import plistlib
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 PLIST_LABEL = "local.new-ebooks.check"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
@@ -23,8 +23,9 @@ def _cache_package() -> None:
     at schedule-time — when the interactive process has iCloud Drive access —
     puts the source in a regular directory that launchd can always read.
     """
-    import new_ebooks as _pkg
     import shutil
+
+    import new_ebooks as _pkg
 
     src_dir = Path(_pkg.__path__[0])
     dst_dir = PKG_CACHE_DIR / "new_ebooks"
@@ -123,7 +124,8 @@ def load_plist() -> None:
 def unload_plist() -> None:
     subprocess.run(
         ["launchctl", "bootout", _gui_target(), str(PLIST_PATH)],
-        capture_output=True, text=True,  # don't raise — may not be loaded
+        capture_output=True, text=True,
+        check=False,  # don't raise — may not be loaded
     )
 
 
@@ -131,11 +133,12 @@ def is_loaded() -> bool:
     result = subprocess.run(
         ["launchctl", "list", PLIST_LABEL],
         capture_output=True, text=True,
+        check=False,  # a non-zero exit is the "not loaded" answer, not an error
     )
     return result.returncode == 0
 
 
-def get_schedule_info() -> Optional[dict]:
+def get_schedule_info() -> dict | None:
     if not PLIST_PATH.exists():
         return None
     with open(PLIST_PATH, "rb") as f:

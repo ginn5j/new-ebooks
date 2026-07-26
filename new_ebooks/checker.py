@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Callable, Optional
+
+from typing import Callable
 
 from new_ebooks.config import LibraryConfig
 from new_ebooks.scraper import EBook, build_search_url, parse_page
@@ -8,7 +9,7 @@ from new_ebooks.state import LibraryState
 MAX_PAGES = 50
 
 
-def find_anchor(books: list[EBook], anchor_id: str) -> Optional[int]:
+def find_anchor(books: list[EBook], anchor_id: str) -> int | None:
     for i, book in enumerate(books):
         if book.overdrive_id == anchor_id:
             return i
@@ -17,13 +18,13 @@ def find_anchor(books: list[EBook], anchor_id: str) -> Optional[int]:
 
 def check_for_new_ebooks(
     config: LibraryConfig,
-    lib_state: Optional[LibraryState],
+    lib_state: LibraryState | None,
     fetcher: Callable[[str], str],
-    url_builder: Optional[Callable] = None,
-    page_parser: Optional[Callable] = None,
-    fmt: Optional[str] = None,
-    anchor_id: Optional[str] = None,
-) -> tuple[list[EBook], Optional[EBook], bool]:
+    url_builder: Callable | None = None,
+    page_parser: Callable | None = None,
+    fmt: str | None = None,
+    anchor_id: str | None = None,
+) -> tuple[list[EBook], EBook | None, bool]:
     """
     Check a single format and return (new_books, new_anchor, anchor_found).
     new_anchor is the book to save as this format's anchor for the next run.
@@ -54,7 +55,7 @@ def check_for_new_ebooks(
             anchor_id = anchor.overdrive_id
 
     new_books: list[EBook] = []
-    new_anchor: Optional[EBook] = None
+    new_anchor: EBook | None = None
     seen_ids: set[str] = set()
 
     def add_new(books: list[EBook]) -> None:

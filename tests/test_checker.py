@@ -3,7 +3,7 @@ import json as _json
 from new_ebooks.checker import check_for_new_ebooks, find_anchor
 from new_ebooks.config import LibraryConfig
 from new_ebooks.scraper import EBook
-from new_ebooks.state import LibraryState, EBookState
+from new_ebooks.state import EBookState, LibraryState
 
 LIB_CONFIG = LibraryConfig(
     name="Test Library",
@@ -125,7 +125,7 @@ def test_safety_valve(monkeypatch):
         anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone Book", "Author")}
     )
 
-    new_books, anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, _anchor, _ = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     # 3 pages of the same 2 books — each book counted once
     assert len(new_books) == 2
     assert [b.overdrive_id for b in new_books] == ["new1", "new2"]
@@ -217,7 +217,7 @@ def test_custom_page_parser_is_called():
         return page_json
 
     lib_state = LibraryState(anchors={"ebook": EBookState("anchor", "", "Anchor Book", "Auth")})
-    new_books, anchor, _ = check_for_new_ebooks(
+    new_books, _anchor, _ = check_for_new_ebooks(
         CL_CONFIG, lib_state, fetcher,
         url_builder=_cl_url_builder, page_parser=page_parser,
     )
@@ -361,7 +361,7 @@ def test_anchor_found_flag_false_when_pages_run_out(monkeypatch):
     lib_state = LibraryState(
         anchors={"ebook-kindle": EBookState("missing_anchor", "r0", "Gone", "Author")}
     )
-    new_books, anchor, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
+    new_books, _anchor, anchor_found = check_for_new_ebooks(LIB_CONFIG, lib_state, fetcher)
     assert anchor_found is False
     assert [b.overdrive_id for b in new_books] == ["new1", "new2"]
 

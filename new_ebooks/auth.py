@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 import getpass
-from typing import Optional
 
 import keyring
 import requests
@@ -11,14 +11,14 @@ from new_ebooks.cookies import cookie_dict
 KEYCHAIN_SERVICE = "new-ebooks"
 
 
-def credential_key(library_url: str, member_library: Optional[str] = None) -> str:
+def credential_key(library_url: str, member_library: str | None = None) -> str:
     library_url = library_url.rstrip("/")
     if member_library:
         return f"{library_url}::{member_library}"
     return library_url
 
 
-def get_stored_credentials(library_url: str, member_library: Optional[str] = None) -> Optional[tuple[str, str]]:
+def get_stored_credentials(library_url: str, member_library: str | None = None) -> tuple[str, str] | None:
     key = credential_key(library_url, member_library)
     secret = keyring.get_password(KEYCHAIN_SERVICE, key)
     if secret:
@@ -28,7 +28,7 @@ def get_stored_credentials(library_url: str, member_library: Optional[str] = Non
     return None
 
 
-def get_credentials(library_url: str, member_library: Optional[str] = None) -> tuple[str, str]:
+def get_credentials(library_url: str, member_library: str | None = None) -> tuple[str, str]:
     key = credential_key(library_url, member_library)
     secret = keyring.get_password(KEYCHAIN_SERVICE, key)
     if secret:
@@ -45,7 +45,7 @@ def get_credentials(library_url: str, member_library: Optional[str] = None) -> t
     return card_number, pin
 
 
-def detect_consortium(session: requests.Session, library_url: str) -> Optional[list[str]]:
+def detect_consortium(session: requests.Session, library_url: str) -> list[str] | None:
     library_url = library_url.rstrip("/")
     try:
         resp = session.get(f"{library_url}/account/oauthsignin", timeout=15)
@@ -66,7 +66,7 @@ def detect_consortium(session: requests.Session, library_url: str) -> Optional[l
 def login(
     session: requests.Session,
     library_url: str,
-    member_library: Optional[str],
+    member_library: str | None,
     card_number: str,
     pin: str,
 ) -> dict:

@@ -2,7 +2,7 @@ import smtplib
 
 import pytest
 
-import new_ebooks.emailer as emailer
+from new_ebooks import emailer
 from new_ebooks.config import EmailConfig
 from new_ebooks.emailer import send_email
 
@@ -32,14 +32,14 @@ class FakeServer:
 
 
 def make_config(**overrides) -> EmailConfig:
-    values = dict(
-        smtp_host="smtp.example.com",
-        smtp_port=587,
-        smtp_user="user@example.com",
-        smtp_from="user@example.com",
-        smtp_to="reader@example.com",
-        use_tls=True,
-    )
+    values = {
+        "smtp_host": "smtp.example.com",
+        "smtp_port": 587,
+        "smtp_user": "user@example.com",
+        "smtp_from": "user@example.com",
+        "smtp_to": "reader@example.com",
+        "use_tls": True,
+    }
     values.update(overrides)
     return EmailConfig(**values)
 

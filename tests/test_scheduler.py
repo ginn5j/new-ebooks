@@ -1,7 +1,7 @@
 import plistlib
 import sys
 
-import new_ebooks.scheduler as scheduler
+from new_ebooks import scheduler
 
 
 def _patch_paths(monkeypatch, tmp_path):

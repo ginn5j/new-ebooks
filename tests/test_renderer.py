@@ -3,8 +3,8 @@ from new_ebooks.renderer import (
     format_date,
     group_sections,
     media_kind,
-    render_html,
     render_email_html,
+    render_html,
 )
 from new_ebooks.scraper import EBook
 
