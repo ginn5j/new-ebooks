@@ -9,6 +9,7 @@ import argparse
 import requests
 
 from new_ebooks.cli import (
+    _browsable_anonymously,
     _fetch_with_auth,
     _parse_retention,
     _wait_for_network,
@@ -343,6 +344,71 @@ def test_provider_tools_cloudlibrary():
     ]}}}))
     assert len(books) == 1
     assert books[0].detail_url == f"{CL_CONFIG.library_base_url}/detail/a1"
+
+
+OD_CONFIG = LibraryConfig(
+    name="Overdrive Test",
+    library_base_url="https://indypl.overdrive.com",
+    formats=["ebook-overdrive", "audiobook"],
+)
+
+OD_PAGE = (
+    "<html><script>window.OverDrive.titleCollection = "
+    '[{"id": "1", "title": "T", "firstCreatorName": "A"}];</script></html>'
+)
+
+
+class FakeProbeSession:
+    """Stands in for the throwaway requests.Session in _browsable_anonymously."""
+
+    def __init__(self, texts):
+        self.texts = list(texts)
+        self.headers = {}
+        self.urls = []
+
+    def get(self, url, timeout=None, headers=None):
+        self.urls.append(url)
+        text = self.texts.pop(0)
+        if isinstance(text, Exception):
+            raise text
+        return FakeResponse(text)
+
+
+def _patch_probe(monkeypatch, texts) -> FakeProbeSession:
+    probe = FakeProbeSession(texts)
+    monkeypatch.setattr("new_ebooks.cli.requests.Session", lambda: probe)
+    return probe
+
+
+def test_browsable_anonymously_true_when_every_format_parses(monkeypatch):
+    probe = _patch_probe(monkeypatch, [OD_PAGE, OD_PAGE])
+    assert _browsable_anonymously(requests.Session(), OD_CONFIG) is True
+    # Probes page 1 of each tracked format, not just the first.
+    assert len(probe.urls) == 2
+    assert "format=ebook-overdrive" in probe.urls[0]
+    assert "mediaType=audiobook" in probe.urls[1]
+
+
+def test_browsable_anonymously_false_when_one_format_is_gated(monkeypatch):
+    """A site that serves eBooks but gates audiobooks still needs a login."""
+    _patch_probe(monkeypatch, [OD_PAGE, "<html>sign in</html>"])
+    assert _browsable_anonymously(requests.Session(), OD_CONFIG) is False
+
+
+def test_browsable_anonymously_false_on_request_error(monkeypatch):
+    _patch_probe(monkeypatch, [requests.HTTPError("403 Forbidden")])
+    assert _browsable_anonymously(requests.Session(), OD_CONFIG) is False
+
+
+def test_fetcher_skips_reauth_when_library_needs_no_auth():
+    """A signed-out-browsable library has no session to expire: a page that
+    trips the auth heuristic must be returned, not sent through a doomed login."""
+    config = LibraryConfig(
+        name="L", library_base_url="https://indypl.overdrive.com", requires_auth=False
+    )
+    session = FakeSession([LOGIN_PAGE])
+    fetcher = _fetch_with_auth(session, config, LibraryState())
+    assert fetcher("https://indypl.overdrive.com/search/title") == LOGIN_PAGE
 
 
 def test_cookie_dict_survives_cross_domain_name_conflicts():

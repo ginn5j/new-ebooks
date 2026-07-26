@@ -106,8 +106,12 @@ def _fetch_with_auth(
 
     extra_headers = {"Accept": "application/json"} if is_cloudlibrary else {}
 
+    requires_auth = getattr(lib_config, "requires_auth", True)
+
     def reauth_stored() -> None:
         """Re-authenticate using stored credentials only (never prompts)."""
+        if not requires_auth:
+            return
         if is_cloudlibrary:
             new_cookies = cl.init_session(session, lib_config.library_base_url)
         else:
@@ -151,7 +155,9 @@ def _fetch_with_auth(
                     print(f"Re-authentication failed: {auth_e}", file=sys.stderr)
         text = resp.text
         auth_check = cl.is_authenticated if is_cloudlibrary else is_authenticated
-        if not auth_check(text):
+        # An anonymous library has no session to expire, and no sign-in form to
+        # post to — the auth check would only produce a doomed login attempt.
+        if requires_auth and not auth_check(text):
             print("Session expired. Re-authenticating...", file=sys.stderr)
             try:
                 if is_cloudlibrary:
@@ -186,6 +192,27 @@ def _provider_tools(lib_config: LibraryConfig) -> tuple[Callable, Callable]:
             partial(cl.parse_page, library_base_url=lib_config.library_base_url),
         )
     return partial(build_search_url, language=language), parse_page
+
+
+def _browsable_anonymously(session: requests.Session, lib_config: LibraryConfig) -> bool:
+    """True if the library's search results parse without signing in.
+
+    Probes page 1 of every tracked format on a session carrying no auth
+    cookies: a site that only gates *some* formats still needs a login. Any
+    error means "can't tell" — fall back to authenticating.
+    """
+    url_builder, page_parser = _provider_tools(lib_config)
+    probe = requests.Session()
+    probe.headers.update(session.headers)
+    try:
+        for fmt in lib_config.formats:
+            resp = probe.get(url_builder(lib_config.library_base_url, fmt, 1), timeout=30)
+            resp.raise_for_status()
+            if not page_parser(resp.text):
+                return False
+    except Exception:
+        return False
+    return True
 
 
 def _default_language(provider: str) -> str:
@@ -350,19 +377,30 @@ def cmd_init(args: argparse.Namespace) -> int:
         language=language,
     )
 
-    print("Authenticating...")
+    # Some Overdrive sites let signed-out visitors browse the catalog. Check
+    # that before asking for a card number, since those same sites tend to be
+    # the ones with no scrapable sign-in form left to post to. Consortial sites
+    # are excluded: signed out, they may answer with the consortium-wide
+    # catalog rather than the chosen member library's.
+    if provider_input == "overdrive" and not member_library:
+        if _browsable_anonymously(session, lib_config):
+            print("This library allows signed-out browsing; skipping sign-in.")
+            lib_config.requires_auth = False
+
     cookies: dict = {}
-    try:
-        if provider_input == "cloudlibrary":
-            cookies = cl.init_session(session, library_url)
-        else:
-            card_number, pin = get_credentials(library_url, member_library)
-            cookies = login(session, library_url, member_library, card_number, pin)
-    except Exception as e:
-        print(f"Authentication failed: {e}", file=sys.stderr)
-        if args.verbose:
-            traceback.print_exc()
-        return 1
+    if lib_config.requires_auth:
+        print("Authenticating...")
+        try:
+            if provider_input == "cloudlibrary":
+                cookies = cl.init_session(session, library_url)
+            else:
+                card_number, pin = get_credentials(library_url, member_library)
+                cookies = login(session, library_url, member_library, card_number, pin)
+        except Exception as e:
+            print(f"Authentication failed: {e}", file=sys.stderr)
+            if args.verbose:
+                traceback.print_exc()
+            return 1
 
     lib_state = LibraryState(session_cookies=cookies)
     fetcher = _fetch_with_auth(session, lib_config, lib_state, delay=0.0)
