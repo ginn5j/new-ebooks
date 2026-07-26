@@ -1,9 +1,9 @@
 from __future__ import annotations
+
 import json
 import os
-from dataclasses import dataclass, field, asdict, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Optional
 
 
 def _known_fields(cls, data: dict) -> dict:
@@ -30,11 +30,11 @@ class LibraryConfig:
     # cmd_init's prompt default for Overdrive libraries.
     formats: list[str] = field(default_factory=lambda: ["ebook-epub-adobe"])
     request_delay_seconds: float = 1.0
-    member_library: Optional[str] = None
+    member_library: str | None = None
     provider: str = "overdrive"
     # Language filter: "all", "english", or None (unset → preserve the
     # provider's default behavior). See each provider's build_search_url.
-    language: Optional[str] = None
+    language: str | None = None
     # Some Overdrive sites serve browsable search results to signed-out
     # visitors, and no longer host the scrapable card/PIN sign-in form (their
     # /account/oauthsignin redirects away to www.overdrive.com). For those,
@@ -61,7 +61,7 @@ class Config:
     # user can review recent runs if they suspect a problem. 0 (or less)
     # disables pruning and keeps every run.
     max_result_files: int = 10
-    email: Optional[EmailConfig] = None
+    email: EmailConfig | None = None
 
 
 # CloudLibrary format config values were once the raw query values
@@ -102,7 +102,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
         )
     libraries = [_library_from_dict(lib) for lib in data.get("libraries", [])]
     email = None
-    if "email" in data and data["email"]:
+    if data.get("email"):
         email = EmailConfig(**_known_fields(EmailConfig, data["email"]))
     return Config(
         libraries=libraries,

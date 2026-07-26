@@ -1,24 +1,22 @@
 from __future__ import annotations
 
+import argparse
 import json
 
 import pytest
-
-import argparse
-
 import requests
 
 from new_ebooks.cli import (
     _browsable_anonymously,
     _fetch_with_auth,
     _parse_retention,
-    _wait_for_network,
     _provider_tools,
     _prune_result_files,
     _require_macos,
     _result_file_path,
     _retention_label,
     _slugify,
+    _wait_for_network,
     cmd_check,
     cmd_config,
 )
@@ -471,7 +469,7 @@ def _fake_fetch(pages: dict[int, str]):
 
 def test_cmd_check_new_books_writes_results_and_advances_anchor(tmp_path, monkeypatch, capsys):
     pages = {1: _page_html([("b2", "New Book"), ("b1", "Anchor Book")])}
-    args, config_path, state_path = _check_env(tmp_path, pages)
+    args, _config_path, state_path = _check_env(tmp_path, pages)
     monkeypatch.setattr("new_ebooks.cli._fetch_with_auth", _fake_fetch(pages))
 
     assert cmd_check(args) == 0

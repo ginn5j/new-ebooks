@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import argparse
 import re
 import socket
@@ -8,10 +9,18 @@ import traceback
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 import requests
 
+import new_ebooks.cloudlibrary as cl
+from new_ebooks.auth import (
+    get_credentials,
+    get_stored_credentials,
+    is_authenticated,
+    login,
+)
+from new_ebooks.checker import check_for_new_ebooks
 from new_ebooks.config import (
     DEFAULT_CONFIG_PATH,
     EmailConfig,
@@ -19,6 +28,16 @@ from new_ebooks.config import (
     load_config,
     save_config,
 )
+from new_ebooks.cookies import cookie_dict
+from new_ebooks.emailer import get_smtp_password, send_email
+from new_ebooks.renderer import (
+    format_date,
+    page_heading,
+    render_email_html,
+    render_html,
+    write_and_open,
+)
+from new_ebooks.scraper import EBook, build_search_url, parse_page
 from new_ebooks.state import (
     DEFAULT_STATE_PATH,
     EBookState,
@@ -27,24 +46,6 @@ from new_ebooks.state import (
     load_state,
     save_state,
 )
-from new_ebooks.scraper import EBook, build_search_url, parse_page
-from new_ebooks.auth import (
-    get_credentials,
-    get_stored_credentials,
-    login,
-    is_authenticated,
-)
-import new_ebooks.cloudlibrary as cl
-from new_ebooks.checker import check_for_new_ebooks
-from new_ebooks.cookies import cookie_dict
-from new_ebooks.renderer import (
-    format_date,
-    page_heading,
-    render_html,
-    render_email_html,
-    write_and_open,
-)
-from new_ebooks.emailer import get_smtp_password, send_email
 
 
 def _make_session(cookies: dict) -> requests.Session:
@@ -220,7 +221,7 @@ def _default_language(provider: str) -> str:
     return "all" if provider == "overdrive" else "english"
 
 
-def _normalize_language(value: str) -> Optional[str]:
+def _normalize_language(value: str) -> str | None:
     """Parse user input into a stored token, or None if unrecognized."""
     v = value.strip().lower()
     if v in ("all", "none", ""):
@@ -230,7 +231,7 @@ def _normalize_language(value: str) -> Optional[str]:
     return None
 
 
-def _prompt_language(provider: str, current: Optional[str] = None) -> Optional[str]:
+def _prompt_language(provider: str, current: str | None = None) -> str | None:
     """Prompt for a language filter. Returns the token, or None on bad input."""
     default = current if current is not None else _default_language(provider)
     raw = input(f"Language filter (all/english) [{default}]: ").strip() or default
@@ -254,7 +255,7 @@ def _format_hint(provider: str) -> str:
     return "ebook-epub-adobe, ebook-kindle, audiobook"
 
 
-def _prompt_formats(provider: str, current: Optional[list[str]] = None) -> list[str]:
+def _prompt_formats(provider: str, current: list[str] | None = None) -> list[str]:
     """Prompt for one or more comma-separated formats. Returns the parsed list."""
     if current:
         default = ", ".join(current)
@@ -281,7 +282,9 @@ def _result_file_path(results_dir: Path, library_name: str) -> Path:
     suffix avoids collisions when two libraries finish in the same second.
     """
     results_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Local time on purpose: this names a file the user browses, so it should
+    # match the clock they ran the check by, not UTC.
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005
     stem = f"new_ebooks_{_slugify(library_name)}_{ts}"
     path = results_dir / f"{stem}.html"
     counter = 1
@@ -718,7 +721,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         print("\nEmail: not configured (run 'new-ebooks email' to set up)")
 
-    from new_ebooks.scheduler import get_schedule_info, WEEKDAY_NAMES
+    from new_ebooks.scheduler import WEEKDAY_NAMES, get_schedule_info
     info = get_schedule_info()
     if info:
         day = WEEKDAY_NAMES[info["weekday"]]
@@ -820,7 +823,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
     return 0
 
 
-def _parse_retention(raw: str, current: int) -> Optional[int]:
+def _parse_retention(raw: str, current: int) -> int | None:
     """Parse a retention prompt: blank keeps the current value, else an int.
 
     Returns ``None`` if the input is non-empty but not a whole number.
@@ -875,7 +878,7 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 def cmd_email_config(args: argparse.Namespace) -> int:
-    from new_ebooks.emailer import set_smtp_password, get_smtp_password
+    from new_ebooks.emailer import get_smtp_password, set_smtp_password
     config_path = Path(args.config)
     config = load_config(config_path)
     current = config.email
@@ -953,11 +956,15 @@ def _require_macos() -> bool:
 def cmd_schedule(args: argparse.Namespace) -> int:
     if not _require_macos():
         return 1
-    from new_ebooks.scheduler import (
-        write_plist, load_plist, unload_plist,
-        get_schedule_info, is_loaded, WEEKDAY_NAMES,
-    )
     from new_ebooks.config import DEFAULT_CONFIG_DIR
+    from new_ebooks.scheduler import (
+        WEEKDAY_NAMES,
+        get_schedule_info,
+        is_loaded,
+        load_plist,
+        unload_plist,
+        write_plist,
+    )
 
     config_path = Path(args.config)
     config = load_config(config_path)
@@ -1036,7 +1043,12 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 def cmd_update_cache(args: argparse.Namespace) -> int:
     if not _require_macos():
         return 1
-    from new_ebooks.scheduler import write_launcher, PKG_CACHE_DIR, LAUNCHER_PATH, get_schedule_info
+    from new_ebooks.scheduler import (
+        LAUNCHER_PATH,
+        PKG_CACHE_DIR,
+        get_schedule_info,
+        write_launcher,
+    )
 
     if not get_schedule_info():
         print("No schedule configured. Run 'new-ebooks schedule' first.", file=sys.stderr)
@@ -1057,7 +1069,12 @@ def cmd_update_cache(args: argparse.Namespace) -> int:
 def cmd_unschedule(args: argparse.Namespace) -> int:
     if not _require_macos():
         return 1
-    from new_ebooks.scheduler import unload_plist, is_loaded, PLIST_PATH, get_schedule_info
+    from new_ebooks.scheduler import (
+        PLIST_PATH,
+        get_schedule_info,
+        is_loaded,
+        unload_plist,
+    )
 
     if not get_schedule_info():
         print("No schedule configured.")

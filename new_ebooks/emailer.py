@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 import smtplib
 import socket
 import ssl
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 import keyring
 
@@ -14,7 +14,7 @@ from new_ebooks.config import EmailConfig
 KEYRING_SERVICE = "new-ebooks-smtp"
 
 
-def get_smtp_password(smtp_user: str) -> Optional[str]:
+def get_smtp_password(smtp_user: str) -> str | None:
     return keyring.get_password(KEYRING_SERVICE, smtp_user)
 
 

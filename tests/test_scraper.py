@@ -1,5 +1,11 @@
 from pathlib import Path
-from new_ebooks.scraper import build_search_url, extract_media_items, extract_title_collection, parse_page
+
+from new_ebooks.scraper import (
+    build_search_url,
+    extract_media_items,
+    extract_title_collection,
+    parse_page,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_page.html"
 

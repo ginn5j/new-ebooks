@@ -1,8 +1,8 @@
 from __future__ import annotations
+
 import json
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from bs4 import BeautifulSoup
 
@@ -19,7 +19,7 @@ class EBook:
     detail_url: str = ""
 
 
-def _overdrive_language_value(language: Optional[str]) -> str:
+def _overdrive_language_value(language: str | None) -> str:
     """Map a neutral language token to Overdrive's URL value.
 
     None/"all" → no filter (current default); "english" → "en".
@@ -40,7 +40,7 @@ _MEDIA_TYPES = {"audiobook"}
 
 
 def build_search_url(
-    base_url: str, format: str, page: int = 1, language: Optional[str] = None
+    base_url: str, format: str, page: int = 1, language: str | None = None
 ) -> str:
     base_url = base_url.rstrip("/")
     if format in _MEDIA_TYPES:

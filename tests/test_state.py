@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from new_ebooks.state import State, LibraryState, EBookState, save_state, load_state
+from new_ebooks.state import EBookState, LibraryState, State, load_state, save_state
 
 
 def _write_state(path: Path) -> None:

@@ -1,6 +1,6 @@
 import json
-from new_ebooks.cloudlibrary import build_search_url, parse_page, is_authenticated
 
+from new_ebooks.cloudlibrary import build_search_url, is_authenticated, parse_page
 
 # --- build_search_url ---
 

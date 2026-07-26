@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import html as html_mod
 import re
 import webbrowser
@@ -230,7 +231,7 @@ def _nav_html(groups: list[tuple[str, list[EBook]]], css_class: str = "nav") -> 
     return f'<div class="{css_class}">{_section_links(groups)}</div>'
 
 
-def _warning_html(warnings: "list[str] | None") -> str:
+def _warning_html(warnings: list[str] | None) -> str:
     """A styled banner listing any warnings; empty string when there are none."""
     if not warnings:
         return ""
@@ -238,7 +239,7 @@ def _warning_html(warnings: "list[str] | None") -> str:
     return f'<div class="warning"><strong>Warning</strong><ul>{items}</ul></div>'
 
 
-def _email_warning_html(warnings: "list[str] | None") -> str:
+def _email_warning_html(warnings: list[str] | None) -> str:
     """Inline-styled warning banner for email (no external stylesheet)."""
     if not warnings:
         return ""
@@ -255,7 +256,7 @@ def _email_warning_html(warnings: "list[str] | None") -> str:
     )
 
 
-def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "", warnings: "list[str] | None" = None) -> str:
+def render_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "", warnings: list[str] | None = None) -> str:
     groups = group_sections(sections)
     heading = page_heading(sections, last_checked, library_name)
     heading_escaped = _escape(heading)
@@ -343,7 +344,7 @@ def _email_card_html(book: EBook, library_base_url: str) -> str:
     )
 
 
-def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "", warnings: "list[str] | None" = None) -> str:
+def render_email_html(sections: list[tuple[str, list[EBook]]], last_checked: str, library_name: str = "", library_base_url: str = "", warnings: list[str] | None = None) -> str:
     """Render an email-safe HTML version with all styles inlined (no <style> block)."""
     groups = group_sections(sections)
     heading = page_heading(sections, last_checked, library_name)
